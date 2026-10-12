@@ -106,6 +106,7 @@ class AdaptiveRouter:
             }
         )
         self.algorithm: str = normalize_algorithm(algorithm)
+        self.static_route: Optional[List[str]] = None
 
     # ------------------------------------------------------------------
     # Configuration
@@ -321,8 +322,19 @@ class AdaptiveRouter:
         destination: str,
         algorithm: Optional[str] = None,
     ) -> Tuple[List[str], float]:
+        if getattr(self, "static_route", None) is not None:
+            route = list(self.static_route)
+            if route and route[0] == source and route[-1] == destination:
+                for u, v in zip(route, route[1:]):
+                    if not topology.graph.has_edge(u, v):
+                        raise ValueError(f"No link between {u} and {v}")
+                    edge = topology.graph[u][v]
+                    if edge.get("status") == "DOWN" or not topology.active_node(u) or not topology.active_node(v):
+                        raise ValueError(f"Link {u}-{v} is DOWN")
+                return route, self.route_cost(topology, route)
         path, cost, _stats = self.solve(topology, source, destination, algorithm)
         return path, cost
+
 
     def dijkstra(
         self, topology: NetworkTopology, source: str, destination: str

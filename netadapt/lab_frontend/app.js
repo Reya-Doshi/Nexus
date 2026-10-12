@@ -71,6 +71,9 @@ function routeEdges() {
   const edges=new Set();
   for (const flow of state.flows || []) for (let i=0;i<(flow.route||[]).length-1;i++) edges.add(key(flow.route[i],flow.route[i+1]));
   for (const packet of state.packets || []) if (['ACTIVE','PENDING'].includes(packet.status) && packet.route?.length>1) for (let i=0;i<packet.route.length-1;i++) edges.add(key(packet.route[i],packet.route[i+1]));
+  if (state?.reroute?.current_route?.length > 1) {
+    for (let i=0;i<state.reroute.current_route.length-1;i++) edges.add(key(state.reroute.current_route[i], state.reroute.current_route[i+1]));
+  }
   return edges;
 }
 function renderCanvas() {
@@ -393,7 +396,185 @@ function bindStudyPanels(){
     }catch(error){}
   }));
 }
-function renderInspector(){let html=labSettings();if(servicesView)html=servicesLabInspector();else if(studyView)html=studyView==='learning'?learningInspector():studyView==='challenges'?challengesInspector():studyView==='quiz'?quizInspector():studyView==='demos'?demosInspector():overviewInspector();else if(transportView)html=transportLabInspector();else if(diagnosticView)html=state.packetListView?packetListInspector():diagnosticResultInspector();if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='device'){const d=state.devices.find(x=>x.id===selected.id);if(d)html=deviceInspector(d);}if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='link'){const l=state.links.find(x=>key(x.source,x.target)===key(selected.id,selected.other));if(l)html=linkInspector(l);}if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='packet')html=packetInspector(selected.data);if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='event')html=eventInspector(selected.data);inspectorBody.innerHTML=html;bindInspectorActions();bindTransportLab();bindServicesLab();bindStudyPanels();if(diagnosticView&&state.packetListView)bindPacketList();}
+function rerouteInspector() {
+  const r = state.reroute || {};
+  const incident = r.incident_state || 'Healthy';
+  const autoHeal = r.auto_heal_enabled !== false;
+  const diag = r.diagnosis || {};
+  const metrics = r.metrics || {};
+  const timeline = r.incident_timeline || [];
+  const failed = r.failed_components || [];
+  const route = r.current_route || [];
+
+  const stateColors = {
+    'Healthy': '#65e6a6',
+    'Warning': '#f3bf5b',
+    'Detected': '#f16c7a',
+    'Diagnosing': '#bb9cff',
+    'Action selected': '#5ca9ff',
+    'Rerouting': '#56d9e8',
+    'Verifying': '#f3bf5b',
+    'Recovered': '#65e6a6',
+    'Unresolved': '#f16c7a'
+  };
+  const color = stateColors[incident] || '#56d9e8';
+
+  return `
+  <div class="inspector-section" style="border-bottom: 2px solid var(--line); padding-bottom: 12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span class="eyebrow" style="color:var(--cyan); font-weight:800;">REROUTE · NC-04 DEFENDER</span>
+      <span style="font-size:10px; background:#102235; padding:3px 7px; border-radius:4px; border:1px solid #234157; color:#56d9e8;">Qualcomm Cloud AI 100</span>
+    </div>
+    <div style="margin-top:8px; padding:10px; border-radius:6px; background:#0c1926; border:1px solid ${color}; display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <span style="font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; display:block;">Incident Lifecycle State</span>
+        <b style="font-size:15px; color:${color}; letter-spacing:0.5px;">${esc(incident)}</b>
+      </div>
+      <div style="text-align:right;">
+        <span style="font-size:9px; color:var(--muted); display:block;">Auto-Heal Engine</span>
+        <b style="font-size:13px; color:${autoHeal ? '#65e6a6' : '#f16c7a'};">${autoHeal ? 'ON (Active)' : 'OFF (Baseline)'}</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    <div class="section-title"><span>Interactive Controls</span></div>
+    <div class="button-row" style="margin-bottom:8px;">
+      <button data-reroute="start" class="primary" style="background:#146273; border-color:#2ac2d1;">▶ Start Flow</button>
+      <button data-reroute="pause">Ⅱ Pause</button>
+      <button data-reroute="step" style="border-color:#56d9e8; font-weight:bold;">⇥ Step</button>
+      <button data-reroute="reset">↻ Reset</button>
+    </div>
+    <div class="property" style="margin-top:6px;">
+      <label>Inject Scenario</label>
+      <select id="rerouteScenarioSelect">
+        <option value="sudden_link_failure" ${r.active_scenario==='sudden_link_failure'?'selected':''}>Sudden Link Failure (R2-R4)</option>
+        <option value="gradual_congestion" ${r.active_scenario==='gradual_congestion'?'selected':''}>Gradual Congestion (R2-R4)</option>
+        <option value="no_alternate_path" ${r.active_scenario==='no_alternate_path'?'selected':''}>No Alternate Path (Dual Trunk)</option>
+      </select>
+    </div>
+    <div style="display:flex; gap:6px; margin-top:6px;">
+      <button data-reroute="inject" style="flex:1; background:#4a242c; border-color:#83323e; color:#ffb3ba;">⚡ Trigger Fault</button>
+      <button data-reroute="toggle-heal" style="flex:1; border-color:${autoHeal ? '#f16c7a' : '#65e6a6'};">Auto-Heal: ${autoHeal ? 'Set OFF' : 'Set ON'}</button>
+    </div>
+    <div style="margin-top:6px;">
+      <button data-reroute="compare" style="width:100%; background:#1c2d44; border-color:#3b6598; color:#98c2f5; font-size:11px; padding:6px;">📊 Run Repeatable A/B Comparison (M5)</button>
+    </div>
+  </div>
+
+  <div class="inspector-section">
+    <div class="section-title"><span>Live Simulation Telemetry</span></div>
+    <div style="background:#091522; border:1px solid var(--line); border-radius:6px; padding:8px; margin-bottom:8px;">
+      <span style="font-size:9px; color:var(--muted); display:block;">Active Route</span>
+      <b style="font-size:11px; color:var(--cyan); word-break:break-all;">${route.length ? esc(route.join(' ➔ ')) : 'None'}</b>
+    </div>
+    <div class="diagnostic-stats">
+      <div class="diagnostic-stat">
+        <span style="font-size:9px; color:var(--muted);">Delivery Rate</span>
+        <b style="color:${metrics.recent_pdr_pct < 80 ? '#f16c7a' : '#65e6a6'}; font-size:14px;">${fmt(metrics.recent_pdr_pct, 1)}%</b>
+      </div>
+      <div class="diagnostic-stat">
+        <span style="font-size:9px; color:var(--muted);">Avg Latency</span>
+        <b style="color:var(--cyan); font-size:14px;">${fmt(metrics.recent_latency_ms, 1)} ms</b>
+      </div>
+      <div class="diagnostic-stat">
+        <span style="font-size:9px; color:var(--muted);">Failed Links</span>
+        <b style="color:${failed.length ? '#f16c7a' : '#8fa6ba'}; font-size:14px;">${failed.length ? failed.length : '0'}</b>
+      </div>
+    </div>
+    ${failed.length ? `<div style="font-size:10px; color:#ff9aaa; background:#361923; padding:5px 8px; border-radius:4px; border:1px solid #743342;">Degraded/Down: ${esc(failed.join(', '))}</div>` : ''}
+  </div>
+
+  <div class="inspector-section">
+    <div class="section-title">
+      <span>Qualcomm Cloud AI 100 Diagnosis</span>
+      ${diag.is_fallback ? '<span style="color:#f3bf5b; font-size:8px; border:1px solid #8d6b2c; padding:1px 4px; border-radius:3px;">RULE FALLBACK</span>' : '<span style="color:#65e6a6; font-size:8px; border:1px solid #23684a; padding:1px 4px; border-radius:3px;">QUALCOMM AI 100</span>'}
+    </div>
+    <div style="background:#0a1725; border:1px solid var(--line); border-radius:6px; padding:8px; font-size:11px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="color:var(--muted); font-size:9px;">Hardware Model:</span>
+        <b style="color:var(--cyan); font-size:10px;">${esc(diag.model_name || 'Llama-3.1-8B (Cloud AI 100)')}</b>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="color:var(--muted); font-size:9px;">Inference Latency:</span>
+        <span style="color:var(--text); font-size:10px;">${diag.wall_clock_ms ? fmt(diag.wall_clock_ms, 1) + ' ms' : '—'}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="color:var(--muted); font-size:9px;">Likely Cause:</span>
+        <b style="color:${diag.likely_cause ? '#f16c7a' : 'var(--muted)'}; font-size:10px;">${esc(diag.likely_cause || 'Awaiting incident')}</b>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="color:var(--muted); font-size:9px;">Affected Component:</span>
+        <b style="color:var(--orange); font-size:10px;">${esc(diag.affected_component || 'None')}</b>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+        <span style="color:var(--muted); font-size:9px;">Action Selected:</span>
+        <b style="color:var(--purple); font-size:10px;">${esc(diag.recommended_action || 'None')}</b>
+      </div>
+      ${diag.explanation ? `<div style="font-size:10px; color:#c6dbe8; background:#0e2032; padding:6px; border-radius:4px; line-height:1.4;">${esc(diag.explanation)}</div>` : ''}
+      ${(diag.evidence && diag.evidence.length) ? `<div style="margin-top:6px; font-size:9px; color:var(--muted);"><b style="display:block; margin-bottom:2px;">Observed Evidence:</b>${diag.evidence.map(e => `• ${esc(e)}`).join('<br>')}</div>` : ''}
+    </div>
+  </div>
+
+  <div class="inspector-section" style="border:0;">
+    <div class="section-title"><span>Incident Timeline</span></div>
+    <div style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+      ${timeline.length ? timeline.slice().reverse().map(e => `
+        <div style="font-size:9px; padding:5px 7px; background:#08131e; border:1px solid #142435; border-radius:4px; display:flex; gap:6px;">
+          <span style="color:var(--cyan); font-family:monospace; min-width:40px;">${fmt(e.sim_time, 2)}s</span>
+          <b style="color:${stateColors[e.state] || 'var(--text)'}; min-width:65px;">[${esc(e.state)}]</b>
+          <span style="color:var(--muted); word-break:break-all;">${esc(e.message)}</span>
+        </div>
+      `).join('') : '<div style="color:var(--muted); font-size:10px; text-align:center; padding:10px;">No incident events recorded yet.</div>'}
+    </div>
+  </div>`;
+}
+
+function bindRerouteDeck() {
+  inspectorBody.querySelectorAll('[data-reroute]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const act = btn.dataset.reroute;
+      try {
+        if (act === 'start') {
+          await api('start_traffic', {source:'Client', destination:'Server', packet_count:60, pps:5, traffic_type:'Video'});
+          await api('running', {value:true});
+          play();
+        } else if (act === 'pause') {
+          stop();
+          await api('running', {value:false});
+        } else if (act === 'step') {
+          stop();
+          await api('reroute_step');
+        } else if (act === 'reset') {
+          stop();
+          await api('reroute_reset');
+        } else if (act === 'inject') {
+          const scn = $('rerouteScenarioSelect').value;
+          await api('reroute_inject_scenario', {scenario: scn});
+          toast(`Injected scenario: ${scn}`);
+        } else if (act === 'toggle-heal') {
+          const current = state.reroute?.auto_heal_enabled !== false;
+          await api('reroute_set_auto_heal', {value: !current});
+          toast(`Auto-Heal is now ${!current ? 'ON' : 'OFF'}`);
+        } else if (act === 'compare') {
+          toast('Running repeatable A/B benchmark (Seed 42)...');
+          const scn = $('rerouteScenarioSelect').value;
+          const resp = await api('reroute_run_comparison', {scenario: scn, offered_packets: 30, seed: 42});
+          const report = resp.state.report_dict;
+          const csv = resp.state.report_csv;
+          console.log('A/B Comparison Report:', report);
+          console.log('CSV Report:\n', csv);
+          alert(`Milestone 5 A/B Benchmark Complete!\n\nScenario: ${report.scenario}\nAuto-Heal OFF Post-Action PDR: ${report.auto_heal_off.post_action.delivery_rate_pct.toFixed(1)}%\nAuto-Heal ON Post-Action PDR: ${report.auto_heal_on.post_action.delivery_rate_pct.toFixed(1)}%\nPDR Improvement: +${report.summary_comparison.post_action_pdr_improvement_pct.toFixed(1)}%\nRecovery Time: ${report.auto_heal_on.recovery_time_sim_s}s`);
+        }
+        renderInspector();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  });
+}
+
+function renderInspector(){let html=labSettings();if(servicesView)html=servicesLabInspector();else if(studyView==='reroute')html=rerouteInspector();else if(studyView)html=studyView==='learning'?learningInspector():studyView==='challenges'?challengesInspector():studyView==='quiz'?quizInspector():studyView==='demos'?demosInspector():overviewInspector();else if(transportView)html=transportLabInspector();else if(diagnosticView)html=state.packetListView?packetListInspector():diagnosticResultInspector();if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='device'){const d=state.devices.find(x=>x.id===selected.id);if(d)html=deviceInspector(d);}if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='link'){const l=state.links.find(x=>key(x.source,x.target)===key(selected.id,selected.other));if(l)html=linkInspector(l);}if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='packet')html=packetInspector(selected.data);if(!transportView&&!studyView&&!diagnosticView&&selected?.kind==='event')html=eventInspector(selected.data);inspectorBody.innerHTML=html;bindInspectorActions();bindTransportLab();bindServicesLab();bindStudyPanels();if(studyView==='reroute')bindRerouteDeck();if(diagnosticView&&state.packetListView)bindPacketList();}
 function bindInspectorActions() {
   inspectorBody.querySelectorAll('[data-action]').forEach((el) => {
     el.addEventListener('click', async () => {
@@ -437,7 +618,7 @@ async function runConsole(){const command=$('consoleInput').value;const output=$
 function setMode(next){mode=next;connectStart=null;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));toast(`${next[0].toUpperCase()+next.slice(1)} tool active`);}
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
 document.querySelectorAll('[data-menu]').forEach(button=>button.addEventListener('click',()=>{const action=button.dataset.menu;if(action==='file'){$('newBtn').click();}else if(action==='simulation'){$('playBtn').click();}else if(action==='view'){$('fitBtn').click();$('gridToggle').checked=!$('gridToggle').checked;renderCanvas();}else{toast('Build a topology, connect devices, start traffic, then inject faults to observe self-healing.');}}));
-document.querySelectorAll('[data-diagnostic]').forEach(button=>button.addEventListener('click',async()=>{const action=button.dataset.diagnostic;if(action==='transport'){transportView=true;servicesView=false;diagnosticView=false;renderInspector();return;}
+document.querySelectorAll('[data-diagnostic]').forEach(button=>button.addEventListener('click',async()=>{const action=button.dataset.diagnostic;if(action==='reroute'){studyView='reroute';servicesView=false;transportView=false;diagnosticView=false;if(!state?.devices?.some(d=>d.id==='Client')){await api('reroute_init');}renderInspector();return;}if(action==='transport'){transportView=true;servicesView=false;diagnosticView=false;renderInspector();return;}
 if(action==='services'){servicesView=true;studyView=null;transportView=false;diagnosticView=false;renderInspector();return;}
 if(['learning','challenges','quiz','demos','overview'].includes(action)){studyView=action;servicesView=false;transportView=false;diagnosticView=false;renderInspector();return;}if(action==='packets'){state.packetListView=true;diagnosticView=true;transportView=false;renderInspector();return;}const source=selected?.kind==='device'?selected.id:null;if(!source){toast('Select a source device first.',true);return;}const destination=$('diagnosticDestination').value;try{if(action==='ping'||action==='traceroute'){if(!destination||!state.devices.some(device=>device.id===destination))throw new Error('Select a destination device.');await api(action,{source,destination,count:4});}else{await api(action==='arp'?'arp_table':'mac_table',{id:source});}state.packetListView=false;diagnosticView=true;transportView=false;renderInspector();}catch(error){}}));
 document.querySelectorAll('.palette-item').forEach(item=>item.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain',item.dataset.type)));
@@ -448,7 +629,8 @@ canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.65,Math.mi
 $('gridToggle').addEventListener('change',renderCanvas);$('snapToggle').addEventListener('change',()=>{});
 $('clearSelection').addEventListener('click',()=>{selected=null;diagnosticView=false;transportView=false;renderInspector();});
 $('newBtn').addEventListener('click',()=>{if(confirm('Start a new blank network?'))api('new').then(()=>{selected=null;diagnosticView=false;transportView=false;state.packetListView=false;connectStart=null;renderInspector();});});
-$('presetSelect').addEventListener('change',e=>api('load_preset',{preset:e.target.value}).then(()=>{selected=null;diagnosticView=false;transportView=false;state.packetListView=false;connectStart=null;renderInspector();}));
+$('presetSelect').addEventListener('change',e=>{if(e.target.value==='reroute_six_router'){api('reroute_init').then(()=>{studyView='reroute';renderInspector();});}else{studyView=null;api('load_preset',{preset:e.target.value}).then(()=>{selected=null;diagnosticView=false;transportView=false;state.packetListView=false;connectStart=null;renderInspector();});}});
+
 $('saveBtn').addEventListener('click',async()=>{const data=await api('export');const blob=new Blob([JSON.stringify(data.state.document,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='netadapt-lab.json';a.click();URL.revokeObjectURL(a.href);toast('Topology saved');});
 $('openBtn').addEventListener('click',()=>$('fileInput').click());$('fileInput').addEventListener('change',async e=>{const file=e.target.files[0];if(file)api('import',{document:JSON.parse(await file.text())});e.target.value='';});
 $('undoBtn').addEventListener('click',()=>api('undo'));$('redoBtn').addEventListener('click',()=>api('redo'));
@@ -456,6 +638,6 @@ $('playBtn').addEventListener('click',async()=>{await api('running',{value:true}
 document.querySelectorAll('[data-workspace-control]').forEach(button=>button.addEventListener('click',async()=>{const control=button.dataset.workspaceControl;if(control==='play'){await api('running',{value:true});play();}else if(control==='step'){stop();await api('step');}else{stop();await api('running',{value:false});if(control==='reset')await api('reset');}}));
 $('workspaceSpeed').addEventListener('change',e=>{api('speed',{value:Number(e.target.value)});$('speedSelect').value=e.target.value;});
 $('fitBtn').addEventListener('click',()=>{if(!state.devices.length)return;const xs=state.devices.map(d=>d.x),ys=state.devices.map(d=>d.y),minX=Math.min(...xs)-100,maxX=Math.max(...xs)+100,minY=Math.min(...ys)-100,maxY=Math.max(...ys)+100;canvas.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);});
-async function play(){stop();playTimer=setInterval(async()=>{if(!state?.running){stop();return;}try{await api('step');}catch(e){stop();}},Math.max(120,600/(state?.speed||1)));}function stop(){if(playTimer)clearInterval(playTimer);playTimer=null;}
+async function play(){stop();playTimer=setInterval(async()=>{if(!state?.running){stop();return;}try{if(studyView==='reroute'||state?.devices?.some(d=>d.id==='Client')){await api('reroute_step');}else{await api('step');}}catch(e){stop();}},Math.max(120,600/(state?.speed||1)));}function stop(){if(playTimer)clearInterval(playTimer);playTimer=null;}
 document.addEventListener('keydown',e=>{if((e.key==='Delete'||e.key==='Backspace')&&selected?.kind==='device'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();api('delete_device',{id:selected.id});}if(e.key==='Escape'){selected=null;diagnosticView=false;transportView=false;connectStart=null;renderInspector();}});
 loadState().catch(e=>toast(e.message,true));

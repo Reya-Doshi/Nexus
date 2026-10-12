@@ -24,6 +24,25 @@ from lab_session import LabError, LabSession
 
 ROOT = Path(__file__).resolve().parent
 FRONTEND = ROOT / "lab_frontend"
+
+# Load root .env before constructing LabSession and QualcommAIClient
+def _load_env_file() -> None:
+    for env_path in [ROOT.parent / ".env", ROOT / ".env"]:
+        if env_path.exists():
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip()
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+
+_load_env_file()
+
 SESSION = LabSession()
 
 
@@ -320,8 +339,25 @@ class LabHandler(BaseHTTPRequestHandler):
                 result = SESSION.network_report(str(payload.get("format", "json")))
             elif action == "console":
                 result = SESSION.console(str(payload["id"]), str(payload["command"]))
+            elif action == "reroute_init":
+                result = SESSION.load_reroute_demo()
+            elif action == "reroute_step":
+                result = SESSION.reroute_step()
+            elif action == "reroute_set_auto_heal":
+                result = SESSION.reroute_set_auto_heal(bool(payload.get("value", True)))
+            elif action == "reroute_inject_scenario":
+                result = SESSION.reroute_inject_scenario(str(payload.get("scenario", "sudden_link_failure")))
+            elif action == "reroute_reset":
+                result = SESSION.reroute_reset()
+            elif action == "reroute_run_comparison":
+                result = SESSION.reroute_run_comparison(
+                    str(payload.get("scenario", "sudden_link_failure")),
+                    int(payload.get("offered_packets", 30)),
+                    int(payload.get("seed", 42)),
+                )
             else:
                 raise LabError(f"Unknown action: {action}")
+
             self._json({"ok": True, "state": result})
         except (KeyError, TypeError, ValueError, LabError) as exc:
             self._json({"ok": False, "error": str(exc)}, 400)

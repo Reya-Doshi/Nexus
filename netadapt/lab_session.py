@@ -43,6 +43,8 @@ from services_security import (
 )
 from simulator import NetworkSimulator
 from topology import NetworkTopology
+from reroute_engine import ReRouteController, get_six_router_preset
+
 
 
 PALETTE_TYPES = (
@@ -115,7 +117,10 @@ class LabSession:
         self.last_explanation: Optional[Dict[str, Any]] = None
         self._counter = 1
         self.simulator: NetworkSimulator
+        self.reroute_controller: Optional[Any] = None
         self.load_preset("self_healing", record=False)
+        self.reroute_controller = ReRouteController(self)
+
 
     # ------------------------------------------------------------------
     # Topology construction and serialization
@@ -1766,7 +1771,77 @@ class LabSession:
                 "explanation": deepcopy(self.last_explanation),
                 "can_undo": bool(self.history),
                 "can_redo": bool(self.future),
+                "reroute": self.reroute_controller.get_dashboard_state() if getattr(self, "reroute_controller", None) else None,
             }
+
+    # ------------------------------------------------------------------
+    # ReRoute / Vanguard Autonomous Engine Actions
+    # ------------------------------------------------------------------
+    def load_reroute_demo(self) -> Dict[str, Any]:
+        with self.lock:
+            self.load_preset("reroute_six_router")
+            self.reroute_controller.reset()
+            self.start_traffic(
+                source="Client",
+                destination="Server",
+                packet_count=60,
+                pps=5.0,
+                traffic_type="Video",
+                packet_size=1200,
+            )
+            return self.state()
+
+    def reroute_step(self) -> Dict[str, Any]:
+        with self.lock:
+            if not self.simulator.packets and not any(f.status == "ACTIVE" for f in self.simulator.active_flows.values()):
+                self.start_traffic(
+                    source="Client",
+                    destination="Server",
+                    packet_count=20,
+                    pps=5.0,
+                    traffic_type="Video",
+                    packet_size=1200,
+                )
+            self.reroute_controller.step()
+            return self.state()
+
+    def reroute_set_auto_heal(self, enabled: bool) -> Dict[str, Any]:
+        with self.lock:
+            self.reroute_controller.set_auto_heal(enabled)
+            return self.state()
+
+    def reroute_inject_scenario(self, scenario_name: str) -> Dict[str, Any]:
+        with self.lock:
+            self.reroute_controller.inject_scenario(scenario_name)
+            return self.state()
+
+    def reroute_reset(self) -> Dict[str, Any]:
+        with self.lock:
+            self.load_preset("reroute_six_router")
+            self.reroute_controller.reset()
+            self.start_traffic(
+                source="Client",
+                destination="Server",
+                packet_count=60,
+                pps=5.0,
+                traffic_type="Video",
+                packet_size=1200,
+            )
+            return self.state()
+
+    def reroute_run_comparison(self, scenario: str = "sudden_link_failure", offered_packets: int = 30, seed: int = 42) -> Dict[str, Any]:
+        with self.lock:
+            try:
+                from reroute_engine import run_comparison_benchmark
+            except ModuleNotFoundError:
+                from netadapt.reroute_engine import run_comparison_benchmark
+            report = run_comparison_benchmark(scenario_name=scenario, offered_packets=offered_packets, seed=seed)
+            return {
+                "report_dict": report.to_dict(),
+                "report_csv": report.to_csv(),
+            }
+
+
 
 
 def _device(kind: str, name: str, x: float, y: float) -> Dict[str, Any]:
@@ -1785,4 +1860,6 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "qos_demo": {"version": 1, "name": "QoS Demo", "settings": {"seed": 42, "scheduler": "wfq"}, "devices": [_device("host", "PC1", 120, 200), _device("router", "R1", 360, 200), _device("switch", "SW1", 620, 200), _device("server", "Server1", 850, 200)], "links": [_link("PC1", "R1"), _link("R1", "SW1", 10, 25), _link("SW1", "Server1")]},
     "large_network": {"version": 1, "name": "Large Network", "settings": {"seed": 42}, "devices": [_device("host", f"PC{i}", 80 + (i % 4) * 180, 100 + (i // 4) * 150) for i in range(1, 9)] + [_device("router", f"R{i}", 350 + (i % 3) * 180, 120 + (i // 3) * 180) for i in range(1, 5)] + [_device("switch", "SW1", 550, 300)] + [_device("server", "Server1", 900, 300)], "links": [_link("PC1", "R1"), _link("PC2", "R1"), _link("PC3", "R2"), _link("PC4", "R2"), _link("PC5", "R3"), _link("PC6", "R3"), _link("PC7", "R4"), _link("PC8", "R4"), _link("R1", "SW1"), _link("R2", "SW1"), _link("R3", "SW1"), _link("R4", "SW1"), _link("SW1", "Server1")]},
     "existing_default": {"version": 1, "name": "Existing Default Topology", "settings": {"seed": 42}, "devices": [_device("host", n, 80 + (i % 4) * 210, 100 + (i // 4) * 180) for i, n in enumerate(["H1", "H2", "H3", "H4"])] + [_device("router", n, 260 + (i % 3) * 190, 110 + (i // 3) * 190) for i, n in enumerate(["R1", "R2", "R3", "R4", "R5", "R6"])], "links": [_link("H1", "R1"), _link("H2", "R2"), _link("H3", "R5"), _link("H4", "R6"), _link("R1", "R2", 10), _link("R1", "R3", 15), _link("R2", "R4", 12), _link("R3", "R4", 8), _link("R3", "R5", 15), _link("R4", "R5", 10), _link("R4", "R6", 18), _link("R5", "R6", 10)]},
+    "reroute_six_router": get_six_router_preset(),
 }
+

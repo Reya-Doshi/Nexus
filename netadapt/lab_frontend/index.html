@@ -13,7 +13,7 @@
       <nav class="menu"><button data-menu="file">File</button><button data-menu="simulation">Simulation</button><button data-menu="view">View</button><button data-menu="help">Help</button></nav>
       <div class="toolbar-group">
         <button id="newBtn" title="New network">＋ New</button>
-        <select id="presetSelect" title="Load topology preset"><option value="self_healing">Self-Healing Demo</option><option value="simple_lan">Simple LAN</option><option value="two_router">Two Router Network</option><option value="redundant">Redundant Network</option><option value="qos_demo">QoS Demo</option><option value="large_network">Large Network</option><option value="existing_default">Existing Default Topology</option></select>
+        <select id="presetSelect" title="Load topology preset"><option value="reroute_six_router" selected>★ ReRoute 6-Router Demo</option><option value="self_healing">Self-Healing Demo</option><option value="simple_lan">Simple LAN</option><option value="two_router">Two Router Network</option><option value="redundant">Redundant Network</option><option value="qos_demo">QoS Demo</option><option value="large_network">Large Network</option><option value="existing_default">Existing Default Topology</option></select>
         <button id="saveBtn">⇩ Save</button>
         <button id="openBtn">⇧ Open</button><input id="fileInput" type="file" accept="application/json" hidden />
         <span class="divider"></span>
@@ -50,6 +50,7 @@
       <main class="canvas-panel">
         <div class="canvas-header"><div><span class="eyebrow">TOPOLOGY WORKSPACE</span><h1 id="topologyName">Self-Healing Demo</h1></div><div class="canvas-actions"><button id="fitBtn">⌗ Fit</button><label class="toggle"><input id="gridToggle" type="checkbox" checked /> Grid</label><label class="toggle"><input id="snapToggle" type="checkbox" checked /> Snap</label></div></div>
         <div class="diagnostic-toolbar">
+          <button id="rerouteBtn" data-diagnostic="reroute" style="background:#0284c7;color:#fff;font-weight:700;">★ ReRoute AI</button>
           <span class="diagnostic-source">Source: <b id="diagnosticSource">select a device</b></span>
           <label>Destination <select id="diagnosticDestination"><option>select a destination</option></select></label>
           <button id="pingBtn" data-diagnostic="ping">⌁ Ping</button>
