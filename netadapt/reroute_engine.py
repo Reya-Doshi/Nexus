@@ -27,6 +27,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Set
 
+try:
+    from telegram_notifier import TelegramNotifier, IncidentAlertPayload
+except ModuleNotFoundError:
+    from netadapt.telegram_notifier import TelegramNotifier, IncidentAlertPayload
+
 
 # -----------------------------------------------------------------------------
 # 1. Fixed Six-Router Redundant Topology Preset
@@ -831,11 +836,20 @@ class ReRouteController:
         self.last_probe_sim_time: float = 0.0
         self.probe_interval: float = 1.0
 
+        # One-way Telegram incident notification worker
+        self.notifier = TelegramNotifier()
+        self.run_id: str = f"run-{int(time.time())}"
+        self.incident_counter: int = 0
+        self.current_incident_id: Optional[str] = None
+
     def reset(self) -> None:
         self.telemetry.reset()
         self.detector.reset()
         self.ai_client.new_epoch()
         self.healing.reset()
+        if hasattr(self, "notifier") and self.notifier is not None:
+            self.notifier.reset()
+        self.current_incident_id = None
         self.incident_state = IncidentState.HEALTHY
         self.active_scenario = None
         self.scenario_step = 0
@@ -1059,11 +1073,41 @@ class ReRouteController:
                     ref_start = self.fault_onset_sim_time or self.incident_start_sim_time or 0.0
                     self.recovery_time_sim_time = round(max(0.0, self.session.simulator.time - ref_start), 3)
                     self.log_incident_event(f"Verified Recovered! 5 consecutive packets delivered on bypass route within latency limits. Recovery duration: {self.recovery_time_sim_time}s relative to fault onset.")
+                    if hasattr(self, "notifier") and self.notifier is not None:
+                        inc_id = self.current_incident_id or f"INC-{self.incident_counter:04d}"
+                        comp = self.active_diagnosis.affected_component if self.active_diagnosis else None
+                        self.notifier.notify_incident(
+                            IncidentAlertPayload(
+                                run_id=self.run_id,
+                                incident_id=inc_id,
+                                event_type="RECOVERED",
+                                epoch=self.notifier.current_epoch,
+                                timestamp=self.session.simulator.time,
+                                affected_component=comp,
+                                new_route=list(self.current_route),
+                                recovery_duration_s=self.recovery_time_sim_time,
+                                details=f"Recovery duration: {self.recovery_time_sim_time:.3f}s relative to fault onset",
+                            )
+                        )
                 elif status == "DROPPED":
                     # Packet drop while verifying
                     if self.active_scenario == ReRouteScenarioType.NO_ALTERNATE_PATH.value:
                         self.incident_state = IncidentState.UNRESOLVED
                         self.log_incident_event("Unresolved: No alternate path exists meeting capacity. Packets dropping.")
+                        if hasattr(self, "notifier") and self.notifier is not None:
+                            inc_id = self.current_incident_id or f"INC-{self.incident_counter:04d}"
+                            comp = self.active_diagnosis.affected_component if self.active_diagnosis else None
+                            self.notifier.notify_incident(
+                                IncidentAlertPayload(
+                                    run_id=self.run_id,
+                                    incident_id=inc_id,
+                                    event_type="UNRESOLVED",
+                                    epoch=self.notifier.current_epoch,
+                                    timestamp=self.session.simulator.time,
+                                    affected_component=comp,
+                                    details="No alternate path exists meeting capacity. Packets dropping.",
+                                )
+                            )
 
         elif self.incident_state == IncidentState.RECOVERED:
             # A second fault after recovery creates a new incident lifecycle
@@ -1075,10 +1119,26 @@ class ReRouteController:
                 self.log_incident_event(f"New Anomaly Warning after recovery: {'; '.join(evidence)}")
 
     def _transition_to_detected(self, evidence: List[str], suspected: Optional[str]) -> None:
+        self.incident_counter += 1
+        self.current_incident_id = f"INC-{self.incident_counter:04d}"
         self.incident_state = IncidentState.DETECTED
         ref_start = self.fault_onset_sim_time or self.incident_start_sim_time or 0.0
         self.detection_delay_sim_time = round(max(0.0, self.session.simulator.time - ref_start), 3)
         self.log_incident_event(f"Failure Detected! Detection delay: {self.detection_delay_sim_time}s relative to fault onset. Evidence: {'; '.join(evidence)}")
+
+        if hasattr(self, "notifier") and self.notifier is not None:
+            self.notifier.notify_incident(
+                IncidentAlertPayload(
+                    run_id=self.run_id,
+                    incident_id=self.current_incident_id,
+                    event_type="DETECTED",
+                    epoch=self.notifier.current_epoch,
+                    timestamp=self.session.simulator.time,
+                    affected_component=suspected,
+                    evidence=evidence,
+                    details=f"Detection delay: {self.detection_delay_sim_time}s relative to fault onset",
+                )
+            )
 
     def _trigger_ai_diagnosis(self, evidence: List[str], suspected: Optional[str]) -> None:
         epoch = self.ai_client.new_epoch()
@@ -1116,12 +1176,38 @@ class ReRouteController:
         if not alt:
             self.incident_state = IncidentState.UNRESOLVED
             self.log_incident_event("Unresolved: All alternate routes exhausted or blocked. Packets will be dropped.")
+            if hasattr(self, "notifier") and self.notifier is not None:
+                inc_id = self.current_incident_id or f"INC-{self.incident_counter:04d}"
+                self.notifier.notify_incident(
+                    IncidentAlertPayload(
+                        run_id=self.run_id,
+                        incident_id=inc_id,
+                        event_type="UNRESOLVED",
+                        epoch=self.notifier.current_epoch,
+                        timestamp=self.session.simulator.time,
+                        affected_component=comp,
+                        details="All alternate routes exhausted or blocked. Packets will be dropped.",
+                    )
+                )
             return
 
         new_route, cost = alt
         if new_route == self.current_route:
             self.incident_state = IncidentState.UNRESOLVED
             self.log_incident_event("Unresolved: Alternative path equals degraded path.")
+            if hasattr(self, "notifier") and self.notifier is not None:
+                inc_id = self.current_incident_id or f"INC-{self.incident_counter:04d}"
+                self.notifier.notify_incident(
+                    IncidentAlertPayload(
+                        run_id=self.run_id,
+                        incident_id=inc_id,
+                        event_type="UNRESOLVED",
+                        epoch=self.notifier.current_epoch,
+                        timestamp=self.session.simulator.time,
+                        affected_component=comp,
+                        details="Alternative path equals degraded path.",
+                    )
+                )
             return
 
         old_route = list(self.current_route)
@@ -1324,6 +1410,9 @@ def run_comparison_benchmark(
         session.simulator.rng = random.Random(seed)
         ctrl = session.reroute_controller
         ctrl.healing.auto_heal_enabled = auto_heal
+        # Requirement 9: Disable external notifications in automated tests and comparison benchmarks
+        if hasattr(ctrl, "notifier") and ctrl.notifier is not None:
+            ctrl.notifier.enabled = False
 
         # Inject deterministic diagnosis provider to remove dependence on live network / thread timing
         ctrl.ai_client.api_key = ""  # Enforces offline deterministic rule fallback without network latency

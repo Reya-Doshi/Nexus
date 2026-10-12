@@ -51,8 +51,9 @@
 | Check / Test Suite | Scope | Result | Notes |
 |---|---|---|---|
 | `test_qualcomm_conn.py` | Live Qualcomm Cloud AI 100 on Cirrascale | **PASS** (Exit 0) | Connected to `https://aisuite.cirrascale.com/apis/v2`, queried models, executed live inference with `Llama-3.1-8B`. |
-| `test_reroute.py` | Milestones 1–6 ReRoute engine, healing, A/B benchmark + 15 review regression tests | **PASS** (28/28) | 28 tests passed in 27.81s (`python -X utf8 -m pytest -q netadapt/test_reroute.py`). |
-| NetAdapt Full Test Suite | All baseline unit tests + ReRoute tests | **PASS** (337/337) | 337 tests passed in 55.05s (`python -X utf8 -m pytest -q netadapt/`). |
+| `test_telegram_notifier.py` | Telegram notification worker, formatting, dedup, rate limits, reset | **PASS** (8/8) | 8 mocked tests passed in 1.50s (`python -X utf8 -m pytest -q netadapt/test_telegram_notifier.py`). |
+| `test_reroute.py` | Milestones 1–6 ReRoute engine, healing, A/B benchmark + 15 review regression tests | **PASS** (28/28) | 28 tests passed in 7.55s (`python -X utf8 -m pytest -q netadapt/test_reroute.py`). |
+| NetAdapt Full Test Suite | All baseline unit tests + ReRoute tests + Telegram tests | **PASS** (345/345) | 345 tests passed in 11.77s (`python -X utf8 -m pytest -q netadapt/`). |
 | Comparison Benchmark Export | Repeatable A/B evaluation | **PASS** | `reroute_comparison_report.json` and `reroute_comparison_report.csv` generated. |
 
 ### Backend Correctness Invariants Independently Verified:
@@ -134,7 +135,18 @@ Open browser at: `http://localhost:8000`
 
 ---
 
-## 6. Known Limitations
+## 6. One-Way Telegram Notification Module
+- **Segregation & Concurrency:** Runs completely asynchronously via `TelegramNotifier` on a single daemon background thread with a bounded queue. Never acquires the simulation lock or blocks packet progression.
+- **Alert Transitions:** Transmits plain text notifications only on `Detected`, verified `Recovered`, and `Unresolved` lifecycle transitions.
+- **Message Content:** Every alert includes `🚨 [SIMULATED NETWORK] Incident Alert`, incident ID, run ID, timestamp, affected component, and observed evidence. Recovery alerts include the active bypass route and simulated recovery duration.
+- **Deduplication & Hygiene:** Deduplicates by `(run_id, incident_id, event_type)`. Old queue entries are purged upon simulation reset. Bot tokens are strictly redacted from logs and error handlers.
+- **Setup Helper:** `telegram_setup.py` provides `--get-chat-id` (listing chats from getUpdates without selecting one automatically or printing message contents) and `--send-test` (sending a single verified test alert).
+- **Test Isolation:** Automatically disabled in comparison benchmarks and test suites (`notifier.enabled = False`).
+
+---
+
+## 7. Known Limitations
 - Rerouting operates within the simulated network graph; physical link repairs require explicit topology reset or administrative manual interface recovery.
 - In `no_alternate_path` scenarios where both upper and lower paths are simultaneously severed, the engine correctly reports `Unresolved`, as no physical alternative exists.
 - In offline environments without network connectivity to Cirrascale, the engine automatically and seamlessly transitions to the local rule-based diagnostic fallback.
+- Telegram notifications are strictly one-way alerts; no inbound commands, webhooks, or remote execution capabilities are supported.
