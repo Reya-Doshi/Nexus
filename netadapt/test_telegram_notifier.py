@@ -215,20 +215,25 @@ def test_telegram_notifier_rate_limit_and_timeout_no_blind_retry():
     notifier = TelegramNotifier(enabled=True, bot_token=token, chat_id="12345")
     notifier.shutdown()
 
-    # 1. 429 Rate limiting
+    # 1. 429 Rate limiting honors full retry_after via interruptible wait
     mock_err_429 = urllib.error.HTTPError(
         url="https://api.telegram.org",
         code=429,
         msg="Too Many Requests",
         hdrs={},
-        fp=MagicMock(read=lambda: b'{"ok": false, "parameters": {"retry_after": 1}}'),
+        fp=MagicMock(read=lambda: b'{"ok": false, "parameters": {"retry_after": 7}}'),
     )
 
-    with patch("urllib.request.urlopen", side_effect=mock_err_429), patch("time.sleep") as mock_sleep:
+    with patch("urllib.request.urlopen", side_effect=mock_err_429), patch.object(notifier._stop_event, "wait") as mock_wait:
         success = notifier._send_raw_text("test")
         assert success is False
-        assert mock_sleep.called
-        assert mock_sleep.call_args[0][0] == 1
+        assert mock_wait.called
+        assert mock_wait.call_args[1]["timeout"] == 7
+        assert notifier._rate_limit_until > time.time()
+
+    # Reset clears rate-limit cooldown and advances epoch
+    notifier.reset()
+    assert notifier._rate_limit_until == 0.0
 
     # 2. Timeout error does not crash or raise
     mock_timeout = urllib.error.URLError("timed out")

@@ -762,26 +762,32 @@ class HealingManager:
         - Rejects packets sent before the action boundary timestamp.
         - Rejects packets not matching the expected bypass route.
         """
-        # If status is not DELIVERED or latency is missing or exceeds threshold, reset window
-        if status != "DELIVERED" or latency_ms is None or latency_ms > 50.0:
+        # Reject missing required verification fields (packet_id, timestamp, route, latency_ms)
+        if (
+            status != "DELIVERED"
+            or packet_id is None
+            or timestamp is None
+            or route is None
+            or latency_ms is None
+            or latency_ms > 50.0
+        ):
             self.consecutive_delivered_on_new_route = 0
             return False
 
         # Route validation if expected_route is established
-        if self.expected_route is not None and route is not None:
+        if self.expected_route is not None:
             if list(route) != list(self.expected_route):
                 self.consecutive_delivered_on_new_route = 0
                 return False
 
         # Timestamp validation against action boundary
-        if timestamp is not None and timestamp < self.action_sim_time:
+        if timestamp < self.action_sim_time:
             return False
 
         # Duplicate packet ID validation: repeated packet IDs must NOT count toward recovery
-        if packet_id is not None:
-            if packet_id in self.verified_packet_ids:
-                return False
-            self.verified_packet_ids.add(packet_id)
+        if packet_id in self.verified_packet_ids:
+            return False
+        self.verified_packet_ids.add(packet_id)
 
         self.consecutive_delivered_on_new_route += 1
         if self.consecutive_delivered_on_new_route >= self.verification_window:
@@ -795,6 +801,7 @@ class HealingManager:
 
 class ReRouteScenarioType(str, Enum):
     GRADUAL_CONGESTION = "gradual_congestion"
+    MILD_CONGESTION = "mild_congestion"
     SUDDEN_LINK_FAILURE = "sudden_link_failure"
     NO_ALTERNATE_PATH = "no_alternate_path"
 
@@ -978,6 +985,30 @@ class ReRouteController:
                     if "R2-R4" not in self.failed_components:
                         self.failed_components.append("R2-R4")
                     self.log_incident_event(f"Injected sudden link failure on R2-R4 at sim time {self.fault_onset_sim_time:.3f}s")
+
+        elif self.active_scenario == ReRouteScenarioType.MILD_CONGESTION.value:
+            # Mild, slowly increasing congestion without packet loss
+            # Latency increases smoothly across steps: 22ms -> 28ms -> 34ms -> 42ms
+            if topo.graph.has_edge("R2", "R4"):
+                edge = topo.graph["R2"]["R4"]
+                if step == 2:
+                    edge["congestion"] = 0.15
+                    edge["latency"] = 12.0
+                    edge["packet_loss"] = 0.0
+                    self.fault_onset_sim_time = self.session.simulator.time
+                    self.log_incident_event("Injected mild congestion onset on R2-R4 (15%, zero loss)")
+                elif step == 4:
+                    edge["congestion"] = 0.35
+                    edge["latency"] = 18.0
+                    edge["packet_loss"] = 0.0
+                    self.log_incident_event("Mild congestion escalating on R2-R4 (35%, zero loss)")
+                elif step == 6:
+                    edge["congestion"] = 0.55
+                    edge["latency"] = 26.0
+                    edge["packet_loss"] = 0.0
+                    if "R2-R4" not in self.failed_components:
+                        self.failed_components.append("R2-R4")
+                    self.log_incident_event("Mild congestion reached elevated latency on R2-R4 (55%, zero loss)")
 
         elif self.active_scenario == ReRouteScenarioType.GRADUAL_CONGESTION.value:
             # Gradually increase congestion on R2-R4

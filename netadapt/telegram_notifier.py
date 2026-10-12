@@ -76,6 +76,7 @@ class TelegramNotifier:
         self.current_epoch: int = 0
         self._stop_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
+        self._rate_limit_until: float = 0.0
 
         if self.enabled and self.bot_token and self.chat_id:
             self._start_worker()
@@ -112,6 +113,7 @@ class TelegramNotifier:
         """
         with self._lock:
             self.current_epoch += 1
+            self._rate_limit_until = 0.0
             self._sent_keys.clear()
             # Drain queue
             try:
@@ -155,8 +157,20 @@ class TelegramNotifier:
                 return False
 
     def _worker_loop(self) -> None:
-        """Daemon worker loop pulling from bounded queue."""
+        """Daemon worker loop pulling from bounded queue with interruptible rate limit cooldown."""
         while not self._stop_event.is_set():
+            # Check rate-limit cooldown before dequeueing
+            remaining_cooldown = 0.0
+            with self._lock:
+                now = time.time()
+                if self._rate_limit_until > now:
+                    remaining_cooldown = self._rate_limit_until - now
+
+            if remaining_cooldown > 0:
+                self._stop_event.wait(timeout=remaining_cooldown)
+                if self._stop_event.is_set():
+                    break
+
             try:
                 item = self._queue.get(timeout=0.5)
             except queue.Empty:
@@ -239,8 +253,10 @@ class TelegramNotifier:
                 pass
 
             if e.code == 429:
-                logger.warning("Telegram rate-limited (429). Retry-after: %d seconds. Sleeping.", retry_after)
-                time.sleep(min(retry_after, 5))
+                logger.warning("Telegram rate-limited (429). Retry-after: %d seconds. Waiting interruptibly.", retry_after)
+                with self._lock:
+                    self._rate_limit_until = max(self._rate_limit_until, time.time() + retry_after)
+                self._stop_event.wait(timeout=retry_after)
             else:
                 # Never print the token or raw exception with token
                 logger.warning("Telegram HTTP error %d: %s", e.code, e.reason)

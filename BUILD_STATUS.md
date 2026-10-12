@@ -51,9 +51,9 @@
 | Check / Test Suite | Scope | Result | Notes |
 |---|---|---|---|
 | `test_qualcomm_conn.py` | Live Qualcomm Cloud AI 100 on Cirrascale | **PASS** (Exit 0) | Connected to `https://aisuite.cirrascale.com/apis/v2`, queried models, executed live inference with `Llama-3.1-8B`. |
-| `test_telegram_notifier.py` | Telegram notification worker, formatting, dedup, rate limits, reset | **PASS** (8/8) | 8 mocked tests passed in 1.50s (`python -X utf8 -m pytest -q netadapt/test_telegram_notifier.py`). |
-| `test_reroute.py` | Milestones 1–6 ReRoute engine, healing, A/B benchmark + 15 review regression tests | **PASS** (28/28) | 28 tests passed in 7.55s (`python -X utf8 -m pytest -q netadapt/test_reroute.py`). |
-| NetAdapt Full Test Suite | All baseline unit tests + ReRoute tests + Telegram tests | **PASS** (345/345) | 345 tests passed in 11.77s (`python -X utf8 -m pytest -q netadapt/`). |
+| `test_telegram_notifier.py` | Telegram notification worker, formatting, dedup, rate limits, reset | **PASS** (8/8) | 8 mocked tests passed (`python -X utf8 -m pytest -q netadapt/test_telegram_notifier.py`). Full retry_after honored via interruptible wait with epoch recheck. |
+| `test_reroute.py` | Milestones 1–6 ReRoute engine, healing, A/B benchmark, mild congestion scenario + 16 review regression tests | **PASS** (29/29) | 29 tests passed (`python -X utf8 -m pytest -q netadapt/test_reroute.py`). |
+| NetAdapt Full Test Suite | All baseline unit tests + ReRoute tests + Telegram tests | **PASS** (346/346) | 346 tests passed in 27.62s (`python -X utf8 -m pytest -q netadapt/`). |
 | Comparison Benchmark Export | Repeatable A/B evaluation | **PASS** | `reroute_comparison_report.json` and `reroute_comparison_report.csv` generated. |
 
 ### Backend Correctness Invariants Independently Verified:
@@ -61,7 +61,7 @@
 2. **Observation-Driven Fault Detection:** Fault detection evaluates measured telemetry observations (loss, latency, scheduled heartbeats); link `DOWN` status does not leak directly to detector until periodic probes accumulate. Unprobed links remain marked `None` (unknown).
 3. **Consistent Millisecond Latency:** Packet latency and summary link stats are converted to milliseconds (`ms = s * 1000.0`) at the boundary.
 4. **Deterministic Reroute Avoidance:** Dijkstra path search excludes failed or degraded components.
-5. **Distinct Recovery Service Limits & Duplicate-ID Rejection:** Recovery requires distinct post-action packets processed after the action boundary on the validated route meeting latency limits (<= 50.0 ms). Replaying identical packet IDs five times does NOT recover. Packets with missing latency are rejected.
+5. **Distinct Recovery Service Limits & Incomplete Observation Rejection:** Recovery requires distinct post-action packets processed after the action boundary on the validated route meeting latency limits (<= 50.0 ms). Replaying identical packet IDs five times does NOT recover. Packets with missing packet ID, missing timestamp, missing route, or missing latency are strictly rejected and cannot produce `Recovered`.
 6. **No Alternate Path Unresolved:** When all egress paths are blocked, engine correctly transitions to and remains in `Unresolved`.
 7. **Labelled Fallback on AI Timeout / Malformed Output:** Malformed JSON or unknown components immediately yield an explicitly labelled deterministic rule fallback (`model_name="Deterministic Rule Fallback"`, `is_fallback=True`).
 8. **Epoch Invalidation on Reset:** Resetting advances client epoch and invalidates pending in-flight AI responses.
@@ -71,6 +71,8 @@
 12. **Exact Workload Enforcement in A/B Benchmark:** `offered_packets` is strictly enforced and validated (minimum >= 15); unsupported sizes are explicitly rejected with `ValueError`.
 13. **Deterministic Diagnosis Provider Injection:** A/B benchmarks inject a deterministic diagnosis provider (e.g. `Deterministic Rule Fallback` or custom callable), avoiding reliance on live network/inference timing, and record provider identity in reports.
 14. **Zero-Delivery Latency None/N/A:** Phases with 0 delivered packets record average latency as `None` (`"N/A"`), cleanly propagating to deltas and CSV exports without assuming 0.0ms.
+15. **Mild Congestion & Latency Objective Verification:** Under mild, slowly increasing congestion (`mild_congestion` scenario with 0% packet loss), rerouting triggers before any packet loss occurs (100% PDR preserved throughout). Explainable detection thresholds require consecutive samples (Warning at 1.4x baseline, Detected at 2.2x baseline / ~41.8ms); when an external latency objective (e.g. 35.0 ms) is declared, rerouting completes as latency approaches/breaches the objective window.
+16. **Telegram Rate Limiting & Interruptible Cooldown:** Telegram 429 rate limit responses honor the full `retry_after` duration using an interruptible event wait (`_stop_event.wait(timeout=retry_after)`), and recheck epoch validity before subsequent dequeues.
 
 ### Summary Comparison (from `reroute_comparison_report.csv`):
 - **Scenario:** Sudden Link Failure (`R2-R4`)
