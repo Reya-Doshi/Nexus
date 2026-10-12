@@ -63,6 +63,10 @@ async function loadState() {
     await api('reroute_init');
   } else {
     render();
+    // Issue 1: Restore playback timer if state was loaded in running mode
+    if (state.running) {
+      play();
+    }
   }
 }
 
@@ -152,6 +156,10 @@ function renderCanvas() {
       const s = el.dataset.source;
       const t = el.dataset.target;
       if (mode === 'delete') {
+        if (state?.running) {
+          toast('Cannot delete links while simulation is running. Pause first.', true);
+          return;
+        }
         api('delete_link', { source: s, target: t });
         return;
       }
@@ -467,6 +475,19 @@ function render() {
       pauseBtn.classList.add('action-btn');
     }
   }
+
+  // Issue 3: Build/Run separation — lock structural edits while running, keep fault controls active
+  const addRouterBtn = $('addRouterBtn');
+  const addHostBtn = $('addHostBtn');
+  const modeConnectBtn = $('modeConnectBtn');
+  const modeDeleteBtn = $('modeDeleteBtn');
+  if (addRouterBtn) addRouterBtn.disabled = isRunning;
+  if (addHostBtn) addHostBtn.disabled = isRunning;
+  if (modeConnectBtn) modeConnectBtn.disabled = isRunning;
+  if (modeDeleteBtn) modeDeleteBtn.disabled = isRunning;
+  if (isRunning && (mode === 'connect' || mode === 'delete')) {
+    setMode('select');
+  }
 }
 
 async function play() {
@@ -643,30 +664,66 @@ function bindControls() {
 
   // Topology toolbar buttons
   $('addRouterBtn')?.addEventListener('click', async () => {
+    if (state?.running) {
+      toast('Cannot add devices while simulation is running. Pause to edit topology.', true);
+      return;
+    }
     try {
-      const nextId = `R${(state.devices.filter(d => d.type === 'router').length + 1)}`;
-      await api('add_device', {type: 'router', id: nextId, x: 600 + Math.floor(Math.random() * 80), y: 340 + Math.floor(Math.random() * 80)});
-      toast(`Added router ${nextId}`);
+      const count = state.devices.filter(d => d.type === 'router').length + 1;
+      const desiredName = `R${count}`;
+      const prevIds = new Set((state.devices || []).map(d => d.id));
+      const res = await api('add_device', {
+        type: 'router',
+        name: desiredName,
+        x: 600 + Math.floor(Math.random() * 80),
+        y: 340 + Math.floor(Math.random() * 80)
+      });
+      // Display the actual created device name from returned state
+      const created = (res?.state?.devices || state?.devices || []).find(d => !prevIds.has(d.id));
+      const actualName = created?.name || created?.id || desiredName;
+      toast(`Added router ${actualName}`);
     } catch (e) {
       toast(e.message, true);
     }
   });
 
   $('addHostBtn')?.addEventListener('click', async () => {
+    if (state?.running) {
+      toast('Cannot add devices while simulation is running. Pause to edit topology.', true);
+      return;
+    }
     try {
-      const nextId = `PC${(state.devices.filter(d => d.type === 'pc').length + 1)}`;
-      await api('add_device', {type: 'pc', id: nextId, x: 200 + Math.floor(Math.random() * 80), y: 340 + Math.floor(Math.random() * 80)});
-      toast(`Added host ${nextId}`);
+      const count = state.devices.filter(d => d.type === 'pc').length + 1;
+      const desiredName = `PC${count}`;
+      const prevIds = new Set((state.devices || []).map(d => d.id));
+      const res = await api('add_device', {
+        type: 'pc',
+        name: desiredName,
+        x: 200 + Math.floor(Math.random() * 80),
+        y: 340 + Math.floor(Math.random() * 80)
+      });
+      // Display the actual created device name from returned state
+      const created = (res?.state?.devices || state?.devices || []).find(d => !prevIds.has(d.id));
+      const actualName = created?.name || created?.id || desiredName;
+      toast(`Added host ${actualName}`);
     } catch (e) {
       toast(e.message, true);
     }
   });
 
   $('modeConnectBtn')?.addEventListener('click', () => {
+    if (state?.running) {
+      toast('Topology edits locked while running. Pause simulation to connect devices.', true);
+      return;
+    }
     setMode(mode === 'connect' ? 'select' : 'connect');
   });
 
   $('modeDeleteBtn')?.addEventListener('click', () => {
+    if (state?.running) {
+      toast('Topology edits locked while running. Pause simulation to delete devices.', true);
+      return;
+    }
     setMode(mode === 'delete' ? 'select' : 'delete');
   });
 
@@ -720,10 +777,18 @@ function bindNode(el) {
   el.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     if (mode === 'delete') {
+      if (state?.running) {
+        toast('Cannot delete devices while simulation is running. Pause first.', true);
+        return;
+      }
       api('delete_device', {id});
       return;
     }
     if (mode === 'connect') {
+      if (state?.running) {
+        toast('Cannot connect devices while simulation is running. Pause first.', true);
+        return;
+      }
       if (!connectStart) {
         connectStart = id;
         toast(`Connect: select target node to link with ${id}`);
@@ -739,14 +804,19 @@ function bindNode(el) {
     const point = canvasPoint(e);
     const dev = state.devices.find(d => d.id === id);
     if (!dev) return;
-    drag = {id, dx: point.x - dev.x, dy: point.y - dev.y, moved: false};
-    el.setPointerCapture?.(e.pointerId);
+    // Structural lock: disable dragging nodes during playback
+    if (!state?.running) {
+      drag = {id, dx: point.x - dev.x, dy: point.y - dev.y, moved: false};
+      el.setPointerCapture?.(e.pointerId);
+    } else {
+      drag = null;
+    }
     selected = {kind: 'device', id};
     renderInspector();
   });
 
   el.addEventListener('pointermove', (e) => {
-    if (!drag || drag.id !== id) return;
+    if (!drag || drag.id !== id || state?.running) return;
     const p = canvasPoint(e);
     const x = Math.round(p.x - drag.dx);
     const y = Math.round(p.y - drag.dy);
@@ -759,7 +829,7 @@ function bindNode(el) {
     if (!drag || drag.id !== id) return;
     const d = drag;
     drag = null;
-    if (d.moved) {
+    if (d.moved && !state?.running) {
       await api('move_device', {id, x: origin.x, y: origin.y});
     } else {
       renderInspector();
@@ -812,7 +882,7 @@ function renderInspector() {
         <div class="section-title">Status: <span class="status-badge ${down ? 'status-down' : 'status-up'}">${down ? 'DOWN' : 'ONLINE'}</span></div>
         <div class="button-row">
           <button class="adv-btn" id="btnToggleDevPower">${down ? '▶ Start Device' : '⏹ Shutdown Device'}</button>
-          <button class="adv-btn danger" id="btnDeleteDev">🗑 Delete</button>
+          <button class="adv-btn danger" id="btnDeleteDev" ${state?.running ? 'disabled title="Cannot delete devices while running"' : ''}>🗑 Delete</button>
         </div>
       </div>
       <div class="inspector-section">
@@ -832,6 +902,10 @@ function renderInspector() {
       renderInspector();
     });
     $('btnDeleteDev')?.addEventListener('click', async () => {
+      if (state?.running) {
+        toast('Cannot delete devices while simulation is running. Pause first.', true);
+        return;
+      }
       await api('delete_device', {id: dev.id});
       closeInspector();
     });
@@ -852,7 +926,7 @@ function renderInspector() {
         ${property('Congestion', `${fmt(link.congestion * 100, 1)}%`)}
         <div class="button-row" style="margin-top:10px;">
           <button class="adv-btn danger" id="btnToggleLink">${link.status === 'UP' ? 'Fail Link' : 'Recover Link'}</button>
-          <button class="adv-btn danger" id="btnDeleteLink">Delete Link</button>
+          <button class="adv-btn danger" id="btnDeleteLink" ${state?.running ? 'disabled title="Cannot delete links while running"' : ''}>Delete Link</button>
         </div>
       </div>
     `;
@@ -866,6 +940,10 @@ function renderInspector() {
       renderInspector();
     });
     $('btnDeleteLink')?.addEventListener('click', async () => {
+      if (state?.running) {
+        toast('Cannot delete links while simulation is running. Pause first.', true);
+        return;
+      }
       await api('delete_link', {source: link.source, target: link.target});
       closeInspector();
     });

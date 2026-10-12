@@ -1803,6 +1803,7 @@ class LabSession:
                     packet_size=1200,
                 )
             self.reroute_controller.step()
+            self.running = True
             return self.state()
 
     def reroute_set_auto_heal(self, enabled: bool) -> Dict[str, Any]:

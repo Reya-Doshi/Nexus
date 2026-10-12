@@ -17,7 +17,7 @@ async function runBrowserTests() {
   });
 
   console.log('--- Step 0: Loading localhost:8000 ---');
-  await page.goto('http://127.0.0.1:8000/', { waitUntil: 'networkidle' });
+  await page.goto('http://127.0.0.1:8000/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
 
   // Check 1: Start traffic advances traffic and telemetry
@@ -92,7 +92,7 @@ async function runBrowserTests() {
 
   // Reload page
   console.log('Reloading page to test persistence...');
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
   const scenarioValAfterReload = await page.locator('#scenarioSelect').inputValue();
   console.log('Scenario after reload:', scenarioValAfterReload);
@@ -189,6 +189,65 @@ async function runBrowserTests() {
   await page.waitForTimeout(500);
   const modalVisible = await modal.isVisible();
   console.log('Comparison modal closed. Is visible:', modalVisible);
+
+  // Check 9: Verify reload while running restores playback timer
+  console.log('--- Step 9: Testing reload while running restores playback timer ---');
+  await page.locator('#mainStartBtn').click();
+  await page.waitForTimeout(1000);
+  const packetsBeforeReload = await page.locator('#metricPackets').textContent();
+  console.log('Packets before reload:', packetsBeforeReload);
+  
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(800);
+  const startBtnAfterReload = await page.locator('#mainStartBtn').textContent();
+  console.log('Start button text after reload:', startBtnAfterReload);
+  if (!startBtnAfterReload.includes('Running')) {
+    throw new Error(`Expected button to show Running after reload, got "${startBtnAfterReload}"`);
+  }
+  // Wait to ensure timer continues advancing packets
+  await page.waitForTimeout(1500);
+  const packetsAfterReloadWait = await page.locator('#metricPackets').textContent();
+  console.log('Packets after reload wait:', packetsAfterReloadWait);
+  const mReload1 = packetsBeforeReload.match(/(\d+)\s+delivered\s*\/\s*(\d+)\s+sent/);
+  const mReload2 = packetsAfterReloadWait.match(/(\d+)\s+delivered\s*\/\s*(\d+)\s+sent/);
+  if (!mReload1 || !mReload2 || Number(mReload2[2]) <= Number(mReload1[2])) {
+    throw new Error(`Reload failed to resume simulation progression: was ${packetsBeforeReload}, now ${packetsAfterReloadWait}`);
+  }
+
+  // Check 10: Verify build/run separation (structural edits locked during running)
+  console.log('--- Step 10: Testing build/run separation lock ---');
+  const addRouterBtnDisabled = await page.locator('#addRouterBtn').isDisabled();
+  const connectBtnDisabled = await page.locator('#modeConnectBtn').isDisabled();
+  console.log('Structural buttons disabled while running:', { addRouterBtnDisabled, connectBtnDisabled });
+  if (!addRouterBtnDisabled || !connectBtnDisabled) {
+    throw new Error('Structural topology editing buttons were not locked during playback!');
+  }
+
+  // Fault controls must remain active
+  const injectFaultDisabled = await page.locator('#injectFaultBtn').isDisabled();
+  const autoHealDisabled = await page.locator('#autoHealToggleBtn').isDisabled();
+  if (injectFaultDisabled || autoHealDisabled) {
+    throw new Error('Fault controls were incorrectly disabled during playback!');
+  }
+
+  // Check 11: Pause, test adding device returns correct name
+  console.log('--- Step 11: Testing add-device naming ---');
+  await page.locator('#mainPauseBtn').click();
+  await page.waitForTimeout(600);
+
+  const addRouterBtn = page.locator('#addRouterBtn');
+  const isDisabledAfterPause = await addRouterBtn.isDisabled();
+  if (isDisabledAfterPause) {
+    throw new Error('Add router button remained disabled after pausing!');
+  }
+  await addRouterBtn.click();
+  await page.waitForTimeout(600);
+
+  const toastText = await page.locator('#toast').textContent();
+  console.log('Toast text after adding router:', toastText);
+  if (!toastText.includes('Added router') || toastText.includes('undefined')) {
+    throw new Error(`Unexpected toast text for added router: "${toastText}"`);
+  }
 
   console.log('--- Verifying Console & Network Hygiene ---');
   console.log('Console Errors:', consoleErrors);
