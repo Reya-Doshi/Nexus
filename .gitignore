@@ -1,0 +1,30 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.log
+*.xml
+
+# Test output smoke files
+*-smoke.json
+
+# Git backups
+*.git_backup
+.git_upstream_backup/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
