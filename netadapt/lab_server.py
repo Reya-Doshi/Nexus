@@ -44,6 +44,8 @@ def _load_env_file() -> None:
 _load_env_file()
 
 SESSION = LabSession()
+# Initialize the server session with the focused ReRoute 6-router topology by default
+SESSION.load_reroute_demo()
 
 
 class LabHandler(BaseHTTPRequestHandler):
