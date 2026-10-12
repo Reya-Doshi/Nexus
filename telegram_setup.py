@@ -184,7 +184,7 @@ def cmd_send_test(token: str, chat_id: str) -> int:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data.get("ok"):
-                print(f"[✓] Setup verification test message sent successfully to Chat ID: {chat_id}")
+                print(f"[OK] Setup verification test message sent successfully to Chat ID: {chat_id}")
                 return 0
             else:
                 desc = sanitize_secrets(data.get("description", "Failed to deliver message"), token)
