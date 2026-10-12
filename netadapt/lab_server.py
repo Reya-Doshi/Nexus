@@ -357,6 +357,10 @@ class LabHandler(BaseHTTPRequestHandler):
                     int(payload.get("offered_packets", 30)),
                     int(payload.get("seed", 42)),
                 )
+            elif action == "reroute_get_connections":
+                result = SESSION.reroute_get_connections()
+            elif action == "reroute_test_telegram":
+                result = SESSION.reroute_test_telegram()
             else:
                 raise LabError(f"Unknown action: {action}")
 

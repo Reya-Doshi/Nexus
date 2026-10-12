@@ -1842,6 +1842,55 @@ class LabSession:
                 "report_csv": report.to_csv(),
             }
 
+    def reroute_get_connections(self) -> Dict[str, Any]:
+        with self.lock:
+            # Report status of Qualcomm Cloud AI and Telegram without exposing credentials
+            notifier = getattr(self.reroute_controller, "notifier", None)
+            tg_enabled = bool(notifier and notifier.enabled)
+            tg_configured = bool(notifier and notifier.bot_token and notifier.chat_id)
+
+            ai_client = getattr(self.reroute_controller, "ai_client", None)
+            qc_configured = bool(ai_client and ai_client.api_key)
+            qc_endpoint = getattr(ai_client, "endpoint", "https://aisuite.cirrascale.com/apis/v2") if ai_client else "https://aisuite.cirrascale.com/apis/v2"
+            qc_model = getattr(ai_client, "model", "Llama-3.1-8B") if ai_client else "Llama-3.1-8B"
+
+            return {
+                "qualcomm": {
+                    "configured": qc_configured,
+                    "endpoint": qc_endpoint,
+                    "model": qc_model,
+                    "status": "Ready (Cirrascale Cloud AI 100)" if qc_configured else "Unconfigured (Rule-based Fallback Active)",
+                    "mode": "Live Cloud AI 100" if qc_configured else "Deterministic Fallback",
+                },
+                "telegram": {
+                    "enabled": tg_enabled,
+                    "configured": tg_configured,
+                    "status": "Connected (Worker Active)" if (tg_enabled and tg_configured) else ("Configured (Disabled)" if tg_configured else "Not Configured"),
+                    "chat_configured": bool(notifier and notifier.chat_id),
+                }
+            }
+
+    def reroute_test_telegram(self) -> Dict[str, Any]:
+        with self.lock:
+            notifier = getattr(self.reroute_controller, "notifier", None)
+            if not notifier or not notifier.enabled or not notifier.bot_token or not notifier.chat_id:
+                return {"sent": False, "message": "Telegram notifier is disabled or missing credentials in environment."}
+            try:
+                from telegram_notifier import IncidentAlertPayload
+            except ModuleNotFoundError:
+                from netadapt.telegram_notifier import IncidentAlertPayload
+            notifier.notify_incident(
+                IncidentAlertPayload(
+                    run_id=self.reroute_controller.run_id,
+                    incident_id="TEST-0001",
+                    event_type="TEST",
+                    epoch=notifier.current_epoch,
+                    timestamp=self.simulator.time,
+                    affected_component="Manual-Test",
+                    details="Dhaara Connections panel manual test verification alert.",
+                )
+            )
+            return {"sent": True, "message": "Test alert enqueued to Telegram worker."}
 
 
 

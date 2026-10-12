@@ -3,342 +3,554 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ReRoute — Self-Healing Network Simulator</title>
+  <title>Dhaara — Network Simulator</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app" class="focused-app">
-    <!-- Top Bar: Consolidated Controls -->
-    <header class="topbar">
-      <div class="brand-lockup">
-        <div class="brand-mark">R</div>
-        <div>
-          <strong>REROUTE</strong>
-          <span>SELF-HEALING NETWORK</span>
+  <div id="app" class="dhaara-app">
+    <!-- Left Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="/assets/dhaara_logo.jpg" alt="Dhaara by Team Setu" class="brand-logo" />
+        <div class="brand-text">
+          <div class="brand-title">Dhaara</div>
+          <div class="brand-subtitle">by Team Setu</div>
         </div>
       </div>
 
-      <div class="primary-controls">
-        <button id="mainStartBtn" class="primary-btn" title="Start packet traffic">▶ Start Traffic</button>
-        <button id="mainPauseBtn" class="action-btn" title="Pause simulation">Ⅱ Pause</button>
-        <button id="mainResetBtn" class="action-btn" title="Reset simulation and incident state">↻ Reset</button>
-
-        <div class="control-separator"></div>
-
-        <div class="scenario-selector-wrap">
-          <label for="scenarioSelect">Scenario:</label>
-          <select id="scenarioSelect" title="Select network fault scenario">
-            <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
-            <option value="mild_congestion">Mild Increasing Congestion (0% Loss)</option>
-            <option value="gradual_congestion">Severe Gradual Congestion (R2-R4)</option>
-            <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
-          </select>
-        </div>
-
-        <button id="injectFaultBtn" class="danger-btn" title="Inject selected fault scenario">⚡ Inject Fault</button>
-        <button id="autoHealToggleBtn" class="heal-btn" title="Toggle Auto-Healing">Auto-Heal: ON</button>
-        <button id="openComparisonBtn" class="accent-btn" title="Open A/B Comparison benchmark results">📊 Compare A/B</button>
-      </div>
-
-      <div class="topbar-right">
-        <button id="toggleAdvancedBtn" class="subtle-btn" title="Toggle legacy palette, protocols, and labs">⚙ Advanced</button>
-      </div>
-    </header>
-
-    <!-- Plain-language Live Status Bar -->
-    <div class="status-banner" id="statusBanner">
-      <span class="status-indicator-dot" id="statusIndicatorDot"></span>
-      <span class="status-text" id="statusText">System ready. Click Start Traffic to begin simulated video flow between Client and Server.</span>
-    </div>
-
-    <!-- Main Content Area: Center Topology + Right Incident Progress -->
-    <div class="main-layout">
-      <!-- Center: Large 6-Router Topology -->
-      <main class="topology-area">
-        <div class="topology-header">
-          <div class="topology-title-group">
-            <span class="section-tag">LIVE SIMULATED TOPOLOGY</span>
-            <h2>Six-Router Mesh (Client &rarr; Server)</h2>
-          </div>
-          <div class="topology-legend">
-            <span class="leg-item"><i class="leg-line active"></i> Active Route</span>
-            <span class="leg-item"><i class="leg-line healthy"></i> Healthy Standby Link</span>
-            <span class="leg-item"><i class="leg-line failed"></i> Degraded / Down Link</span>
-          </div>
-          <div class="topology-tools">
-            <button id="addRouterBtn" class="canvas-tool-btn" title="Add a router to topology">+ Router</button>
-            <button id="addHostBtn" class="canvas-tool-btn" title="Add a host to topology">+ Host</button>
-            <button id="modeConnectBtn" class="canvas-tool-btn" title="Connect devices by clicking two nodes">🔗 Connect</button>
-            <button id="modeDeleteBtn" class="canvas-tool-btn danger" title="Click device or link to delete">🗑 Delete</button>
-          </div>
-        </div>
-
-        <div class="canvas-wrap" id="canvasWrap">
-          <svg id="networkCanvas" viewBox="0 0 1200 680" role="application" aria-label="Six-router network topology canvas">
-            <defs>
-              <pattern id="gridPattern" width="32" height="32" patternUnits="userSpaceOnUse">
-                <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#172638" stroke-width="1" />
-              </pattern>
-              <filter id="nodeShadow">
-                <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#000" flood-opacity=".45" />
-              </filter>
-              <filter id="packetGlow">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <rect id="gridRect" x="0" y="0" width="1200" height="680" fill="url(#gridPattern)" />
-            <g id="linkLayer"></g>
-            <g id="routeLayer"></g>
-            <g id="nodeLayer"></g>
-            <g id="packetLayer"></g>
-            <path id="connectPreview" class="connect-preview" d="" />
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="simulator" id="navSimulatorBtn">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm2 0v8h10V5H5z" clip-rule="evenodd"/>
           </svg>
-          <div id="canvasEmpty" class="empty-hint" style="display:none;">
-            <div class="empty-icon">✦</div>
-            <h2>Topology Loading...</h2>
-          </div>
-        </div>
-      </main>
+          <span>Simulator</span>
+        </button>
 
-      <!-- Right: Incident Progress & Diagnostics -->
-      <aside class="incident-progress-panel">
-        <div class="panel-heading">
-          <span class="section-tag">LIFECYCLE STATE</span>
-          <h3>Incident Progress</h3>
-        </div>
+        <button class="nav-item" data-page="incidents" id="navIncidentsBtn">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+          </svg>
+          <span>Incidents</span>
+        </button>
 
-        <!-- 6-Stage Incident Pipeline -->
-        <div class="pipeline-container">
-          <div class="pipeline-step" id="stage-healthy" data-stage="Healthy">
-            <div class="step-badge">1</div>
-            <div class="step-content">
-              <b>Monitoring</b>
-              <span>Telemetry within bounds</span>
-            </div>
-          </div>
+        <button class="nav-item" data-page="compare" id="navCompareBtn">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+          </svg>
+          <span>Compare</span>
+        </button>
 
-          <div class="pipeline-step" id="stage-detected" data-stage="Detected">
-            <div class="step-badge">2</div>
-            <div class="step-content">
-              <b>Detected</b>
-              <span id="detectionDelayLabel">Anomaly identified</span>
-            </div>
-          </div>
+        <button class="nav-item" data-page="connections" id="navConnectionsBtn">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clip-rule="evenodd"/>
+          </svg>
+          <span>Connections</span>
+        </button>
+      </nav>
 
-          <div class="pipeline-step" id="stage-diagnosing" data-stage="Diagnosing">
-            <div class="step-badge">3</div>
-            <div class="step-content">
-              <b>Diagnosing</b>
-              <span>Analyzing telemetry</span>
-            </div>
-          </div>
-
-          <div class="pipeline-step" id="stage-rerouting" data-stage="Rerouting">
-            <div class="step-badge">4</div>
-            <div class="step-content">
-              <b>Rerouting</b>
-              <span>Switching to bypass route</span>
-            </div>
-          </div>
-
-          <div class="pipeline-step" id="stage-verifying" data-stage="Verifying">
-            <div class="step-badge">5</div>
-            <div class="step-content">
-              <b>Verifying</b>
-              <span>5 consecutive delivered packets</span>
-            </div>
-          </div>
-
-          <div class="pipeline-step" id="stage-final" data-stage="Recovered">
-            <div class="step-badge">6</div>
-            <div class="step-content">
-              <b id="finalStageLabel">Recovered / Unresolved</b>
-              <span id="recoveryTimeLabel">Awaiting verification</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Diagnosis Card -->
-        <div class="diagnosis-card">
-          <div class="diag-header">
-            <span class="section-tag">DIAGNOSIS</span>
-            <span id="providerBadge" class="provider-badge provider-fallback">RULE FALLBACK</span>
-          </div>
-
-          <div class="diag-details">
-            <div class="diag-row">
-              <span class="diag-label">Engine / Provider:</span>
-              <strong id="diagProviderName">Deterministic Fallback</strong>
-            </div>
-            <div class="diag-row">
-              <span class="diag-label">Inference Time:</span>
-              <span id="diagInferenceTime">—</span>
-            </div>
-            <div class="diag-row">
-              <span class="diag-label">Likely Cause:</span>
-              <span id="diagLikelyCause" class="diag-alert">Awaiting incident</span>
-            </div>
-            <div class="diag-row">
-              <span class="diag-label">Affected Component:</span>
-              <span id="diagAffectedComponent" class="diag-highlight">None</span>
-            </div>
-            <div class="diag-row">
-              <span class="diag-label">Action Selected:</span>
-              <span id="diagAction" class="diag-action">None</span>
-            </div>
-            <div id="diagExplanation" class="diag-explanation">
-              System running baseline routing policy. Telemetry normal.
-            </div>
-          </div>
-        </div>
-      </aside>
-    </div>
-
-    <!-- Bottom Strip: Delivery Rate, Latency, Recovery Duration, Timeline -->
-    <footer class="bottom-metrics-bar">
-      <div class="metric-card">
-        <span class="metric-label">Delivery Rate</span>
-        <strong id="metricPdr" class="metric-value metric-good">100.0%</strong>
-        <span class="metric-sub" id="metricPackets">0 delivered / 0 sent</span>
-      </div>
-
-      <div class="metric-card">
-        <span class="metric-label">Average Latency</span>
-        <strong id="metricLatency" class="metric-value">19.0 ms</strong>
-        <span class="metric-sub">End-to-end simulated delay</span>
-      </div>
-
-      <div class="metric-card">
-        <span class="metric-label">Recovery Duration</span>
-        <strong id="metricRecoveryDuration" class="metric-value">—</strong>
-        <span class="metric-sub" id="metricActiveRoute">Route: Client &rarr; R1 &rarr; R2 &rarr; R4 &rarr; R6 &rarr; Server</span>
-      </div>
-
-      <!-- Short Incident Timeline -->
-      <div class="timeline-compact-card">
-        <div class="timeline-card-header">
-          <span class="section-tag">INCIDENT TIMELINE</span>
-          <span id="timelineCount">0 events</span>
-        </div>
-        <div id="compactTimelineList" class="compact-timeline-list">
-          <div class="timeline-empty-msg">No incident events yet. Start traffic or inject a fault.</div>
-        </div>
-      </div>
-    </footer>
-
-    <!-- In-Page A/B Comparison Modal Panel -->
-    <div id="comparisonModal" class="modal-overlay" style="display:none;">
-      <div class="modal-dialog">
-        <div class="modal-header">
+      <div class="sidebar-footer">
+        <div class="sandbox-badge">
+          <svg class="badge-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M11 17a1 1 0 001.447.894l4-2A1 1 0 0017 15V9.236a1 1 0 00-1.447-.894l-4 2a1 1 0 00-.553.894V17zM15.211 6.276a1 1 0 000-1.788l-4.764-2.382a1 1 0 00-.894 0L4.789 4.488a1 1 0 000 1.788l4.764 2.382a1 1 0 00.894 0l4.764-2.382zM4.447 8.342A1 1 0 003 9.236V15a1 1 0 00.553.894l4 2A1 1 0 009 17v-5.764a1 1 0 00-.553-.894l-4-2z"/>
+          </svg>
           <div>
-            <span class="section-tag">A/B BENCHMARK EVALUATION</span>
-            <h3>Repeatable Self-Healing Comparison</h3>
+            <strong>Simulation Sandbox</strong>
+            <span>Safe to experiment<br/>No external impact</span>
           </div>
-          <button id="closeComparisonBtn" class="close-btn" title="Close results">&times;</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Application Viewport -->
+    <div class="main-viewport">
+      <!-- 1. SIMULATOR PAGE -->
+      <section id="pageSimulator" class="dhaara-page active-page">
+        <!-- Top Toolbar -->
+        <header class="page-topbar">
+          <div class="topbar-left">
+            <div class="page-title-group">
+              <h1 class="page-title">Network simulator</h1>
+              <span class="project-pill" id="projectPill">Project: Six-router recovery demo ✎</span>
+            </div>
+
+            <!-- Mode Switcher: Build / Run -->
+            <div class="mode-switcher">
+              <button id="btnBuildMode" class="mode-btn" title="Build mode: add, connect, drag, and delete devices">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="btn-ic"><path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z" clip-rule="evenodd"/></svg>
+                Build
+              </button>
+              <button id="btnRunMode" class="mode-btn active" title="Run mode: simulated traffic and autonomous self-healing">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="btn-ic"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                Run
+              </button>
+            </div>
+            <span class="mode-hint" id="modeHint">Build mode is locked while simulation is running</span>
+          </div>
+
+          <div class="topbar-right">
+            <!-- Sim Controls -->
+            <div class="sim-actions">
+              <button id="mainStartBtn" class="primary-play-btn" title="Start traffic flow">▶ Start</button>
+              <button id="mainPauseBtn" class="ctrl-btn" title="Pause simulation">Ⅱ Pause</button>
+              <button id="mainStepBtn" class="ctrl-btn" title="Execute single simulation step">⏭ Step</button>
+              <button id="mainResetBtn" class="ctrl-btn" title="Reset simulation and incident state">↻ Reset</button>
+
+              <div class="select-wrap">
+                <select id="speedSelect" title="Simulation speed">
+                  <option value="0.5">Speed 0.5x</option>
+                  <option value="1" selected>Speed 1x</option>
+                  <option value="2">Speed 2x</option>
+                  <option value="4">Speed 4x</option>
+                </select>
+              </div>
+
+              <button id="btnSaveDoc" class="ctrl-btn" title="Save topology to JSON">💾 Save</button>
+              <button id="btnLoadDoc" class="ctrl-btn" title="Load topology from JSON">📁 Load</button>
+              <input type="file" id="fileInput" accept=".json" style="display:none;" />
+
+              <div class="select-wrap">
+                <select id="demoPresetSelect" title="Preset topology selector">
+                  <option value="reroute_six_router" selected>Demo: Six-router recovery</option>
+                  <option value="self_healing">Demo: Self-healing lab</option>
+                  <option value="two_router">Demo: Two router</option>
+                  <option value="redundant">Demo: Redundant network</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Provider Badge & Clock -->
+            <div class="system-meta">
+              <span id="providerBadge" class="provider-pill provider-fallback">● Rules fallback Active</span>
+              <span class="sim-clock" id="clockDisplay">Simulation time <strong>00:00.0</strong></span>
+            </div>
+          </div>
+        </header>
+
+        <!-- KPI Strip: Delivery Rate, Latency, Recovery, Delivered, Auto-heal -->
+        <div class="kpi-strip">
+          <div class="kpi-group">
+            <div class="kpi-item">
+              <span class="kpi-label">Delivery</span>
+              <strong id="metricPdr" class="kpi-value text-sage">100.0%</strong>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Latency</span>
+              <strong id="metricLatency" class="kpi-value">N/A</strong>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Recovery</span>
+              <strong id="metricRecoveryDuration" class="kpi-value">—</strong>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Packets delivered</span>
+              <strong id="metricDeliveredCount" class="kpi-value">0</strong>
+              <span class="kpi-sub" id="metricPacketsRatio">0 sent</span>
+            </div>
+          </div>
+
+          <div class="kpi-right">
+            <div class="scenario-inline">
+              <label for="scenarioSelect">Scenario:</label>
+              <select id="scenarioSelect" class="scenario-select">
+                <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
+                <option value="mild_congestion">Mild Increasing Congestion (0% Loss)</option>
+                <option value="gradual_congestion">Severe Congestion (R2-R4)</option>
+                <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
+              </select>
+              <button id="injectFaultBtn" class="btn-copper-fault" title="Inject selected fault scenario">⚡ Inject fault</button>
+            </div>
+
+            <div class="toggle-control">
+              <span class="toggle-label" id="autoHealLabel">Auto-heal <strong>ON</strong></span>
+              <label class="switch">
+                <input type="checkbox" id="autoHealToggle" checked />
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
         </div>
 
-        <div class="modal-body">
-          <div class="modal-intro">
-            Comparing identical workloads (30 packets, Seed 42) with Auto-Heal OFF (Baseline) versus Auto-Heal ON (Vanguard Self-Healing).
+        <!-- Center Workspace: Devices Palette (Left) + Canvas + Right Inspector -->
+        <div class="workspace-body">
+          <!-- Build Palette (Left in Build mode) -->
+          <div class="devices-palette" id="devicesPalette">
+            <div class="palette-header">DEVICES</div>
+            <button class="palette-btn" id="paletteAddRouter" data-type="router" title="Add Router">
+              <div class="palette-icon">◉</div>
+              <span>Router</span>
+            </button>
+            <button class="palette-btn" id="paletteAddSwitch" data-type="switch" title="Add Switch">
+              <div class="palette-icon">▥</div>
+              <span>Switch</span>
+            </button>
+            <button class="palette-btn" id="paletteAddClient" data-type="pc" title="Add Client PC">
+              <div class="palette-icon">💻</div>
+              <span>Client</span>
+            </button>
+            <button class="palette-btn" id="paletteAddServer" data-type="server" title="Add Server">
+              <div class="palette-icon">▦</div>
+              <span>Server</span>
+            </button>
+
+            <div class="palette-divider"></div>
+
+            <button class="palette-tool-btn" id="paletteConnectBtn" title="Connect two devices">
+              <svg viewBox="0 0 20 20" fill="currentColor" class="palette-svg"><path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/></svg>
+              <span>Connect</span>
+            </button>
+            <button class="palette-tool-btn danger" id="paletteDeleteBtn" title="Click device or link to delete">
+              <svg viewBox="0 0 20 20" fill="currentColor" class="palette-svg"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+              <span>Delete</span>
+            </button>
+            <div class="palette-tip" id="paletteTip">Pause and switch to Build to edit</div>
           </div>
 
-          <div id="comparisonLoading" class="modal-loading" style="display:none;">
-            <div class="spinner"></div>
-            <span>Running repeatable comparison benchmark...</span>
+          <!-- Topology Canvas Area -->
+          <div class="canvas-viewport" id="canvasViewport">
+            <!-- Canvas Controls Overlay (Top-Right) -->
+            <div class="canvas-floating-controls">
+              <button class="canvas-btn active" id="btnToolSelect" title="Select tool">⇱</button>
+              <button class="canvas-btn" id="btnToolPan" title="Pan canvas">✋</button>
+              <button class="canvas-btn" id="btnCanvasFit" title="Fit topology to view">⛶</button>
+              <button class="canvas-btn" id="btnZoomOut" title="Zoom out">−</button>
+              <span class="zoom-level" id="zoomLevel">100%</span>
+              <button class="canvas-btn" id="btnZoomIn" title="Zoom in">+</button>
+            </div>
+
+            <!-- SVG Topology Canvas -->
+            <svg id="networkCanvas" viewBox="0 0 1100 620" role="application" aria-label="Dhaara Network Topology">
+              <defs>
+                <pattern id="subtleGrid" width="36" height="36" patternUnits="userSpaceOnUse">
+                  <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#161b22" stroke-width="1" />
+                </pattern>
+                <filter id="packetGlow">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="nodeShadow">
+                  <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".6" />
+                </filter>
+              </defs>
+              <rect id="gridRect" x="0" y="0" width="1100" height="620" fill="url(#subtleGrid)" />
+              <g id="linkLayer"></g>
+              <g id="routeLayer"></g>
+              <g id="nodeLayer"></g>
+              <g id="packetLayer"></g>
+              <path id="connectPreview" class="connect-preview-line" d="" />
+            </svg>
+
+            <!-- Legend Overlay (Bottom-Center) -->
+            <div class="canvas-legend-strip">
+              <span class="leg-pill"><i class="leg-dot moving-packet"></i> Packet (moving)</span>
+              <span class="leg-pill"><i class="leg-line active-sage"></i> Active route</span>
+              <span class="leg-pill"><i class="leg-line failed-dash"></i> Failed route</span>
+              <span class="leg-pill"><i class="leg-line inactive-link"></i> Inactive link</span>
+              <div class="canvas-status-banner" id="canvasStatusBanner">
+                <span class="status-ic">✔</span>
+                <span id="canvasStatusMsg">Flow streaming through active primary path. 100% delivery.</span>
+              </div>
+            </div>
+
+            <div id="canvasEmpty" class="empty-hint" style="display:none;">
+              <h2>No Devices in Topology</h2>
+              <p>Switch to Build mode to add routers, switches, and hosts.</p>
+            </div>
           </div>
 
-          <div id="comparisonResults" class="comparison-results-grid" style="display:none;">
-            <div class="comp-card baseline-card">
-              <h4>Auto-Heal OFF (Baseline)</h4>
-              <div class="comp-stat-row">
-                <span>Post-Action Delivery:</span>
-                <strong id="compOffPdr" class="pdr-bad">0.0%</strong>
+          <!-- Right Inspector Panel -->
+          <aside class="right-inspector" id="rightInspector">
+            <div class="inspector-header">
+              <div class="ins-title-row">
+                <div class="ins-glyph" id="insHeroGlyph">◉</div>
+                <div class="ins-titles">
+                  <h3 id="insTitle">R2</h3>
+                  <span id="insSubtitle">Router · Healthy</span>
+                </div>
               </div>
-              <div class="comp-stat-row">
-                <span>Post-Action Latency:</span>
-                <strong id="compOffLatency">N/A</strong>
+              <button class="ins-collapse-btn" id="insCloseBtn" title="Close inspector">⌃</button>
+            </div>
+
+            <div class="ins-tabs">
+              <button class="ins-tab active" data-tab="overview">Overview</button>
+              <button class="ins-tab" data-tab="routes">Routes</button>
+              <button class="ins-tab" data-tab="events">Events</button>
+            </div>
+
+            <div class="ins-body" id="inspectorBody">
+              <!-- Dynamically rendered Overview / Routes / Events / Link details -->
+            </div>
+          </aside>
+        </div>
+
+        <!-- Bottom Dock: Telemetry Charts, Packet Log, Events -->
+        <footer class="bottom-dock">
+          <div class="dock-tabs">
+            <button class="dock-tab active" data-dock="telemetry" id="tabDockTelemetry">Telemetry</button>
+            <button class="dock-tab" data-dock="packets" id="tabDockPackets">Packet log</button>
+            <button class="dock-tab" data-dock="events" id="tabDockEvents">Events</button>
+          </div>
+
+          <div class="dock-content">
+            <!-- Telemetry Chart View -->
+            <div class="dock-view active-dock" id="dockViewTelemetry">
+              <div class="telemetry-chart-wrap">
+                <div class="chart-header">
+                  <span>Delivery rate (%)</span>
+                  <div class="chart-annotation" id="chartAnnotation">Real observed telemetry samples</div>
+                </div>
+                <div class="chart-svg-box">
+                  <svg id="telemetryChartSvg" viewBox="0 0 650 90" preserveAspectRatio="none">
+                    <!-- Dynamic sparkline / step line graph -->
+                    <line x1="0" y1="80" x2="650" y2="80" stroke="#1f2937" stroke-width="1" />
+                    <line x1="0" y1="40" x2="650" y2="40" stroke="#1f2937" stroke-width="1" stroke-dasharray="2 2" />
+                    <path id="chartPath" d="" fill="none" stroke="#68d391" stroke-width="2.5" />
+                    <g id="chartMarkers"></g>
+                  </svg>
+                </div>
               </div>
-              <div class="comp-stat-row">
+
+              <div class="dock-recent-events">
+                <div class="dock-section-title">Recent events</div>
+                <div class="recent-events-list" id="dockRecentEventsList">
+                  <div class="ev-row-empty">No simulation events yet.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Packet Log View -->
+            <div class="dock-view" id="dockViewPackets" style="display:none;">
+              <div class="table-scroll">
+                <table class="dhaara-table">
+                  <thead>
+                    <tr><th>Packet ID</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Class</th><th>Status</th><th>Latency</th><th>Route</th></tr>
+                  </thead>
+                  <tbody id="dockPacketTableBody">
+                    <tr><td colspan="8" class="text-muted">No packets recorded yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Events View -->
+            <div class="dock-view" id="dockViewEvents" style="display:none;">
+              <div class="table-scroll">
+                <table class="dhaara-table">
+                  <thead>
+                    <tr><th>Time</th><th>State</th><th>Component</th><th>Message</th></tr>
+                  </thead>
+                  <tbody id="dockEventsTableBody">
+                    <tr><td colspan="4" class="text-muted">No events logged.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 2. INCIDENTS PAGE -->
+      <section id="pageIncidents" class="dhaara-page" style="display:none;">
+        <header class="page-topbar">
+          <div class="topbar-left">
+            <h1 class="page-title">Incident history</h1>
+            <span class="project-pill">Session-scoped live self-healing incidents</span>
+          </div>
+          <div class="topbar-right">
+            <button id="btnExportIncidentReport" class="ctrl-btn" title="Export incident history report">📥 Export report</button>
+          </div>
+        </header>
+
+        <div class="page-container">
+          <div class="incidents-table-card">
+            <div class="card-head">
+              <h3>Recorded Network Incidents</h3>
+              <span class="text-muted" id="incidentsTotalBadge">0 incidents recorded</span>
+            </div>
+            <div class="table-scroll">
+              <table class="dhaara-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Incident ID</th>
+                    <th>Target / Device</th>
+                    <th>Failure Type</th>
+                    <th>Provider</th>
+                    <th>Status</th>
+                    <th>Recovery Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="incidentsTableBody">
+                  <tr><td colspan="7" class="text-muted">No incidents triggered yet in this session.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Selected Incident Detail Card -->
+          <div class="incident-detail-card" id="incidentDetailCard">
+            <div class="card-head">
+              <h3 id="incDetailTitle">Active Incident Detail</h3>
+              <span id="incDetailStatusBadge" class="status-badge status-up">Awaiting incident</span>
+            </div>
+            <div class="inc-detail-grid">
+              <div class="detail-col">
+                <div class="prop-row"><label>Onset Time:</label><span id="incDetailOnset">—</span></div>
+                <div class="prop-row"><label>Recovery Duration:</label><span id="incDetailDuration">—</span></div>
+                <div class="prop-row"><label>Likely Cause:</label><span id="incDetailCause">None</span></div>
+                <div class="prop-row"><label>Affected Component:</label><span id="incDetailComponent">None</span></div>
+                <div class="prop-row"><label>Diagnostic Provider:</label><span id="incDetailProvider">Deterministic Fallback</span></div>
+                <div class="prop-row"><label>Recommended Action:</label><span id="incDetailAction">None</span></div>
+              </div>
+              <div class="detail-col">
+                <div class="prop-row"><label>Route Before:</label><span id="incDetailRouteBefore">Client ➔ R1 ➔ R2 ➔ R4 ➔ R6 ➔ Server</span></div>
+                <div class="prop-row"><label>Route After:</label><span id="incDetailRouteAfter">—</span></div>
+                <div class="prop-row"><label>AI Wall-Clock Time:</label><span id="incDetailWallClock">—</span></div>
+                <div class="prop-row"><label>Verification:</label><span id="incDetailVerification">5 consecutive packets</span></div>
+              </div>
+            </div>
+            <div class="inc-explanation-box" id="incDetailExplanation">
+              No active network failure. Telemetry is within bounds.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. COMPARE PAGE -->
+      <section id="pageCompare" class="dhaara-page" style="display:none;">
+        <header class="page-topbar">
+          <div class="topbar-left">
+            <h1 class="page-title">Compare runs</h1>
+            <span class="project-pill">A/B Benchmark: Baseline (Auto-Heal OFF) vs Vanguard Self-Healing (Auto-Heal ON)</span>
+          </div>
+          <div class="topbar-right">
+            <div class="scenario-inline">
+              <label for="compareScenarioSelect">Scenario:</label>
+              <select id="compareScenarioSelect" class="scenario-select">
+                <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
+                <option value="mild_congestion">Mild Increasing Congestion</option>
+                <option value="gradual_congestion">Severe Gradual Congestion</option>
+                <option value="no_alternate_path">No Alternate Path</option>
+              </select>
+              <label for="compareSeedInput">Seed:</label>
+              <input type="number" id="compareSeedInput" value="42" class="num-input" style="width:50px;" />
+              <button id="btnRunComparisonBenchmark" class="primary-play-btn">▶ Run comparison</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="page-container">
+          <div class="compare-kpi-grid">
+            <div class="compare-card baseline-card">
+              <div class="compare-card-title">Auto-heal OFF (Baseline)</div>
+              <div class="compare-metric-row">
+                <span>Post-fault delivery:</span>
+                <strong id="cmpOffPdr" class="text-copper">0.0%</strong>
+              </div>
+              <div class="compare-metric-row">
+                <span>Post-fault latency:</span>
+                <strong id="cmpOffLat">N/A</strong>
+              </div>
+              <div class="compare-metric-row">
                 <span>Outcome:</span>
-                <span id="compOffOutcome">Traffic dropped permanently</span>
+                <span id="cmpOffOutcome">Traffic dropped permanently</span>
               </div>
             </div>
 
-            <div class="comp-card healed-card">
-              <h4>Auto-Heal ON (Self-Healing)</h4>
-              <div class="comp-stat-row">
-                <span>Post-Action Delivery:</span>
-                <strong id="compOnPdr" class="pdr-good">94.1%</strong>
+            <div class="compare-card selfheal-card">
+              <div class="compare-card-title">Auto-heal ON (Self-Healing)</div>
+              <div class="compare-metric-row">
+                <span>Post-fault delivery:</span>
+                <strong id="cmpOnPdr" class="text-sage">94.1%</strong>
               </div>
-              <div class="comp-stat-row">
-                <span>Post-Action Latency:</span>
-                <strong id="compOnLatency">25.0 ms</strong>
+              <div class="compare-metric-row">
+                <span>Post-fault latency:</span>
+                <strong id="cmpOnLat">25.0 ms</strong>
               </div>
-              <div class="comp-stat-row">
-                <span>Recovery Duration:</span>
-                <strong id="compOnRecovery">2.32s</strong>
+              <div class="compare-metric-row">
+                <span>Recovery time:</span>
+                <strong id="cmpOnRecovery">2.32s</strong>
               </div>
             </div>
           </div>
 
-          <div id="comparisonSummaryBox" class="comparison-summary-box" style="display:none;">
+          <div class="compare-summary-card">
             <div class="summary-metric">
               <span>Delivery Improvement:</span>
-              <strong id="compPdrDelta" class="pdr-good">+94.1%</strong>
+              <strong id="cmpPdrDelta" class="text-sage">+94.1%</strong>
             </div>
             <div class="summary-metric">
               <span>Diagnosis Provider:</span>
-              <strong id="compProviderName">Deterministic Fallback</strong>
+              <strong id="cmpProvider">Deterministic Fallback</strong>
+            </div>
+            <div class="summary-metric">
+              <span>Offered Workload:</span>
+              <strong>30 Packets (Seed 42)</strong>
+            </div>
+            <button id="btnDownloadCompareResults" class="ctrl-btn" title="Download benchmark JSON results">📥 Download results</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. CONNECTIONS PAGE -->
+      <section id="pageConnections" class="dhaara-page" style="display:none;">
+        <header class="page-topbar">
+          <div class="topbar-left">
+            <h1 class="page-title">Connections</h1>
+            <span class="project-pill">Hardware Acceleration &amp; Telegram Incident Dispatch Status</span>
+          </div>
+        </header>
+
+        <div class="page-container">
+          <div class="connections-grid">
+            <!-- Qualcomm Cloud AI 100 Card -->
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">🧠</div>
+                <div>
+                  <h3>Qualcomm Cloud AI 100</h3>
+                  <span>Cirrascale AI Suite Diagnostic Engine</span>
+                </div>
+                <span class="conn-status-badge" id="qcStatusBadge">Ready</span>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>Endpoint:</label><span id="qcEndpoint">https://aisuite.cirrascale.com/apis/v2</span></div>
+                <div class="prop-row"><label>Model:</label><span id="qcModel">Llama-3.1-8B</span></div>
+                <div class="prop-row"><label>Status:</label><span id="qcStatusDetail">Ready (Cirrascale Cloud AI 100)</span></div>
+                <div class="prop-row"><label>Fallback Mode:</label><span>Deterministic rule diagnosis automatically activates if endpoint is unreachable.</span></div>
+              </div>
+            </div>
+
+            <!-- Telegram Notifier Card -->
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">📱</div>
+                <div>
+                  <h3>Telegram Incident Notifier</h3>
+                  <span>Real-time Operations Alert Channel</span>
+                </div>
+                <span class="conn-status-badge" id="tgStatusBadge">Connected</span>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>Worker Thread:</label><span id="tgWorkerStatus">Active</span></div>
+                <div class="prop-row"><label>Chat Configured:</label><span id="tgChatStatus">Yes</span></div>
+                <div class="prop-row"><label>Security:</label><span>Bot tokens and chat IDs remain strictly server-side in .env.</span></div>
+                <div class="prop-row" style="margin-top:14px;">
+                  <button id="btnSendTestTelegram" class="primary-play-btn">✉ Send Telegram Test Alert</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-
-        <div class="modal-footer">
-          <button id="modalRerunBtn" class="action-btn">↻ Re-run Benchmark</button>
-          <button id="modalCloseActionBtn" class="primary-btn">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Device & Link Inspector Drawer -->
-    <div id="inspectorDrawer" class="inspector-drawer" style="display:none;">
-      <div class="inspector-drawer-header">
-        <h3 id="inspectorTitle">Element Inspector</h3>
-        <button id="closeInspectorBtn" class="close-btn">&times;</button>
-      </div>
-      <div id="inspectorContent" class="inspector-drawer-content">
-        <!-- Dynamically injected device/link inspector content -->
-      </div>
-    </div>
-
-    <!-- Hidden Advanced Section (Collapsible Drawer) -->
-    <div id="advancedDrawer" class="advanced-drawer" style="display:none;">
-      <div class="advanced-drawer-header">
-        <h3>Advanced Tools &amp; Legacy Labs</h3>
-        <button id="closeAdvancedBtn" class="close-btn">&times;</button>
-      </div>
-      <div class="advanced-drawer-content">
-        <p class="hint">These educational tools, protocol inspectors, and topology editors are preserved from the legacy laboratory.</p>
-        <div class="advanced-button-grid">
-          <button class="adv-btn" data-legacy="transport">Transport Lab</button>
-          <button class="adv-btn" data-legacy="services">Services &amp; Security</button>
-          <button class="adv-btn" data-legacy="packets">Packet Inspector</button>
-          <button class="adv-btn" data-legacy="learning">Learning Modules</button>
-          <button class="adv-btn" data-legacy="challenges">Challenges</button>
-          <button class="adv-btn" data-legacy="quiz">Quiz</button>
-          <button class="adv-btn" data-legacy="export">Export Document</button>
-        </div>
-      </div>
+      </section>
     </div>
   </div>
 
   <div id="toast" class="toast"></div>
 
-  <!-- Shared Application Logic -->
+  <!-- Shared Dhaara Application Logic -->
   <script src="/app.js"></script>
 </body>
 </html>
