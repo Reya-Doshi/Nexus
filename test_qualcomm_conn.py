@@ -1,6 +1,7 @@
 """
 Local verification script for Qualcomm AI Inference Suite (Cirrascale).
 Reads credentials from local .env without printing secrets to terminal or logs.
+Exits with code 0 on success, or nonzero code (1) on any failure.
 """
 import os
 import sys
@@ -39,7 +40,7 @@ def main():
     print(f"    Endpoint: {endpoint}")
     print(f"    Selected Model: {model}")
 
-    # Step 1: Query models list
+    # Step 1: Query models list & verify authentication
     models_url = f"{endpoint}/models"
     req = urllib.request.Request(
         models_url,
@@ -58,10 +59,15 @@ def main():
             for m in llm_models:
                 marker = " (active)" if m == model else ""
                 print(f"    - {m}{marker}")
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors="replace")
+        print(f"[-] Authentication/Models HTTP Error {e.code}: {err_body}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[-] Could not list models: {e}")
+        print(f"[-] Connection to models endpoint failed: {e}")
+        sys.exit(1)
 
-    # Step 2: Test inference call
+    # Step 2: Test live inference call on Qualcomm hardware
     print(f"[*] Testing live inference with '{model}'...")
     chat_url = f"{endpoint}/chat/completions"
     payload = json.dumps({
@@ -77,13 +83,29 @@ def main():
             "Content-Type": "application/json"
         }
     )
+
     try:
         with urllib.request.urlopen(chat_req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-            reply = data["choices"][0]["message"]["content"].strip()
+            resp_data = json.loads(resp.read().decode())
+            choices = resp_data.get("choices", [])
+            if not choices:
+                print(f"[-] Inference failed: No choices returned in response: {resp_data}")
+                sys.exit(1)
+            reply = choices[0].get("message", {}).get("content", "").strip()
+            if not reply:
+                print(f"[-] Inference failed: Empty completion content returned.")
+                sys.exit(1)
             print(f"[+] Inference verified! Response from Qualcomm hardware: '{reply}'")
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors="replace")
+        print(f"[-] Inference HTTP Error {e.code}: {err_body}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[-] Chat completion test error: {e}")
+        print(f"[-] Live inference failed: {e}")
+        sys.exit(1)
+
+    print("[+] All Qualcomm Cloud AI 100 connection checks passed successfully.")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
