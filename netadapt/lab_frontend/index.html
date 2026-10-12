@@ -65,6 +65,12 @@
             <span class="leg-item"><i class="leg-line healthy"></i> Healthy Standby Link</span>
             <span class="leg-item"><i class="leg-line failed"></i> Degraded / Down Link</span>
           </div>
+          <div class="topology-tools">
+            <button id="addRouterBtn" class="canvas-tool-btn" title="Add a router to topology">+ Router</button>
+            <button id="addHostBtn" class="canvas-tool-btn" title="Add a host to topology">+ Host</button>
+            <button id="modeConnectBtn" class="canvas-tool-btn" title="Connect devices by clicking two nodes">🔗 Connect</button>
+            <button id="modeDeleteBtn" class="canvas-tool-btn danger" title="Click device or link to delete">🗑 Delete</button>
+          </div>
         </div>
 
         <div class="canvas-wrap" id="canvasWrap">
@@ -295,6 +301,17 @@
           <button id="modalRerunBtn" class="action-btn">↻ Re-run Benchmark</button>
           <button id="modalCloseActionBtn" class="primary-btn">Close</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Device & Link Inspector Drawer -->
+    <div id="inspectorDrawer" class="inspector-drawer" style="display:none;">
+      <div class="inspector-drawer-header">
+        <h3 id="inspectorTitle">Element Inspector</h3>
+        <button id="closeInspectorBtn" class="close-btn">&times;</button>
+      </div>
+      <div id="inspectorContent" class="inspector-drawer-content">
+        <!-- Dynamically injected device/link inspector content -->
       </div>
     </div>
 

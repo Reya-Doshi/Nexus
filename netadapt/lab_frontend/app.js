@@ -142,6 +142,24 @@ function renderCanvas() {
   const empty = $('canvasEmpty');
   if (empty) empty.style.display = state.devices?.length ? 'none' : 'grid';
 
+  // Bind interactive node handlers
+  nodeLayer.querySelectorAll('[data-id]').forEach(el => bindNode(el));
+
+  // Bind link click handlers
+  linkLayer.querySelectorAll('[data-link]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = el.dataset.source;
+      const t = el.dataset.target;
+      if (mode === 'delete') {
+        api('delete_link', { source: s, target: t });
+        return;
+      }
+      selected = { kind: 'link', id: s, other: t };
+      renderInspector();
+    });
+  });
+
   const packets = state.packets || [];
   if (!packets.length) {
     seenPacketIds.clear();
@@ -359,10 +377,16 @@ function updateBottomMetrics(rerouteState) {
   const recEl = $('metricRecoveryDuration');
   const routeEl = $('metricActiveRoute');
 
-  const pdr = rerouteState?.telemetry?.recent_delivery_rate_pct ?? state?.metrics?.pdr ?? 100.0;
-  const sent = Math.round(state?.metrics?.sent || 0);
-  const delivered = Math.round(state?.metrics?.delivered || 0);
-  const lat = rerouteState?.telemetry?.recent_avg_latency_ms ?? state?.metrics?.latency ?? 19.0;
+  const pdr = rerouteState?.telemetry?.recent_delivery_rate_pct ?? state?.metrics?.pdr ?? (state?.overview?.packet_delivery_ratio) ?? 100.0;
+  const sent = Math.round(state?.overview?.packets_sent ?? state?.metrics?.sent ?? rerouteState?.telemetry?.total_observed ?? 0);
+  const delivered = Math.round(state?.overview?.packets_delivered ?? state?.metrics?.delivered ?? rerouteState?.telemetry?.total_delivered ?? 0);
+  
+  // Bug 4 fix: Do NOT invent 19 ms when there are no successful deliveries or latency is missing
+  let lat = rerouteState?.telemetry?.recent_avg_latency_ms ?? state?.metrics?.latency ?? state?.overview?.average_latency_ms;
+  if (delivered === 0 || lat == null || isNaN(Number(lat))) {
+    lat = null;
+  }
+
   const recoveryDur = rerouteState?.metrics?.recovery_time_sim_time;
   const route = rerouteState?.current_route || ['Client', 'R1', 'R2', 'R4', 'R6', 'Server'];
 
@@ -371,7 +395,7 @@ function updateBottomMetrics(rerouteState) {
     pdrEl.className = `metric-value ${pdr < 85 ? 'pdr-bad' : 'metric-good'}`;
   }
   if (packetsEl) packetsEl.textContent = `${delivered} delivered / ${sent} sent`;
-  if (latEl) latEl.textContent = `${fmt(lat, 1)} ms`;
+  if (latEl) latEl.textContent = lat != null ? `${fmt(lat, 1)} ms` : 'N/A';
   if (recEl) recEl.textContent = recoveryDur != null ? `${recoveryDur.toFixed(2)}s` : '—';
   if (routeEl) routeEl.textContent = `Route: ${route.join(' ➔ ')}`;
 
@@ -580,7 +604,7 @@ function bindControls() {
     runComparisonBenchmark();
   });
 
-  // Advanced Drawer
+  // Advanced Drawer Actions
   $('toggleAdvancedBtn')?.addEventListener('click', () => {
     const drawer = $('advancedDrawer');
     if (drawer) drawer.style.display = drawer.style.display === 'none' ? 'flex' : 'none';
@@ -591,11 +615,331 @@ function bindControls() {
     if (drawer) drawer.style.display = 'none';
   });
 
-  document.querySelectorAll('[data-legacy]').forEach(btn => {
+  // Export Document handler
+  document.querySelector('[data-legacy="export"]')?.addEventListener('click', async () => {
+    try {
+      const data = await api('export');
+      const doc = data?.state?.document || data?.document || state;
+      const blob = new Blob([JSON.stringify(doc, null, 2)], {type: 'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'netadapt-reroute-topology.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Topology document exported');
+    } catch (err) {
+      toast(`Export failed: ${err.message}`, true);
+    }
+  });
+
+  // Legacy Lab views docked into inspector drawer
+  document.querySelectorAll('[data-legacy]:not([data-legacy="export"])').forEach(btn => {
     btn.addEventListener('click', () => {
-      toast(`Legacy module "${btn.dataset.legacy}" is preserved in advanced settings.`);
+      const target = btn.dataset.legacy;
+      $('advancedDrawer').style.display = 'none';
+      openLegacyPanel(target);
     });
   });
+
+  // Topology toolbar buttons
+  $('addRouterBtn')?.addEventListener('click', async () => {
+    try {
+      const nextId = `R${(state.devices.filter(d => d.type === 'router').length + 1)}`;
+      await api('add_device', {type: 'router', id: nextId, x: 600 + Math.floor(Math.random() * 80), y: 340 + Math.floor(Math.random() * 80)});
+      toast(`Added router ${nextId}`);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+
+  $('addHostBtn')?.addEventListener('click', async () => {
+    try {
+      const nextId = `PC${(state.devices.filter(d => d.type === 'pc').length + 1)}`;
+      await api('add_device', {type: 'pc', id: nextId, x: 200 + Math.floor(Math.random() * 80), y: 340 + Math.floor(Math.random() * 80)});
+      toast(`Added host ${nextId}`);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+
+  $('modeConnectBtn')?.addEventListener('click', () => {
+    setMode(mode === 'connect' ? 'select' : 'connect');
+  });
+
+  $('modeDeleteBtn')?.addEventListener('click', () => {
+    setMode(mode === 'delete' ? 'select' : 'delete');
+  });
+
+  $('closeInspectorBtn')?.addEventListener('click', () => {
+    closeInspector();
+  });
+
+  canvas?.addEventListener('click', (e) => {
+    if (e.target === canvas || e.target.id === 'gridRect' || e.target.id === 'connectPreview') {
+      closeInspector();
+      if (connectStart) {
+        connectStart = null;
+        connectPreview.setAttribute('d', '');
+      }
+    }
+  });
+
+  canvas?.addEventListener('pointermove', (e) => {
+    if (connectStart && state) {
+      const from = state.devices.find(d => d.id === connectStart);
+      const p = canvasPoint(e);
+      if (from) connectPreview.setAttribute('d', `M ${from.x} ${from.y} L ${p.x} ${p.y}`);
+    }
+  });
+}
+
+function setMode(nextMode) {
+  mode = nextMode;
+  connectStart = null;
+  if (connectPreview) connectPreview.setAttribute('d', '');
+  
+  const connBtn = $('modeConnectBtn');
+  const delBtn = $('modeDeleteBtn');
+  if (connBtn) connBtn.classList.toggle('active', mode === 'connect');
+  if (delBtn) delBtn.classList.toggle('active', mode === 'delete');
+  
+  if (mode === 'connect') toast('Connect mode: click source device, then target device');
+  else if (mode === 'delete') toast('Delete mode: click any device or link to remove');
+  else toast('Select mode active');
+}
+
+function canvasPoint(event) {
+  const point = canvas.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(canvas.getScreenCTM().inverse());
+}
+
+function bindNode(el) {
+  const id = el.dataset.id;
+  el.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (mode === 'delete') {
+      api('delete_device', {id});
+      return;
+    }
+    if (mode === 'connect') {
+      if (!connectStart) {
+        connectStart = id;
+        toast(`Connect: select target node to link with ${id}`);
+      } else if (connectStart !== id) {
+        const from = connectStart;
+        connectStart = null;
+        if (connectPreview) connectPreview.setAttribute('d', '');
+        api('add_link', {source: from, target: id});
+      }
+      return;
+    }
+    if (e.button !== 0) return;
+    const point = canvasPoint(e);
+    const dev = state.devices.find(d => d.id === id);
+    if (!dev) return;
+    drag = {id, dx: point.x - dev.x, dy: point.y - dev.y, moved: false};
+    el.setPointerCapture?.(e.pointerId);
+    selected = {kind: 'device', id};
+    renderInspector();
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if (!drag || drag.id !== id) return;
+    const p = canvasPoint(e);
+    const x = Math.round(p.x - drag.dx);
+    const y = Math.round(p.y - drag.dy);
+    drag.moved = true;
+    el.setAttribute('transform', `translate(${x},${y})`);
+    origin = {x, y};
+  });
+
+  el.addEventListener('pointerup', async () => {
+    if (!drag || drag.id !== id) return;
+    const d = drag;
+    drag = null;
+    if (d.moved) {
+      await api('move_device', {id, x: origin.x, y: origin.y});
+    } else {
+      renderInspector();
+    }
+  });
+
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (mode === 'select' && !drag?.moved) {
+      selected = {kind: 'device', id};
+      renderInspector();
+    }
+  });
+}
+
+function property(label, value) {
+  return `<div class="property"><label>${esc(label)}</label><span>${esc(value)}</span></div>`;
+}
+
+function closeInspector() {
+  selected = null;
+  const drawer = $('inspectorDrawer');
+  if (drawer) drawer.style.display = 'none';
+}
+
+function renderInspector() {
+  const drawer = $('inspectorDrawer');
+  const title = $('inspectorTitle');
+  const body = $('inspectorContent');
+  if (!drawer || !body) return;
+
+  if (!selected) {
+    drawer.style.display = 'none';
+    return;
+  }
+
+  drawer.style.display = 'flex';
+
+  if (selected.kind === 'device') {
+    const dev = state.devices?.find(d => d.id === selected.id);
+    if (!dev) return;
+    if (title) title.textContent = `Device: ${dev.name}`;
+    const down = dev.status === 'DOWN';
+    body.innerHTML = `
+      <div class="device-hero">
+        <div class="device-symbol">${dev.type === 'router' ? '◉' : dev.type === 'server' ? '▦' : '🖥'}</div>
+        <div><b>${esc(dev.name)}</b><span>${esc(TYPES[dev.type] || dev.type)} · ${dev.interfaces?.length || 0} interfaces</span></div>
+      </div>
+      <div class="inspector-section">
+        <div class="section-title">Status: <span class="status-badge ${down ? 'status-down' : 'status-up'}">${down ? 'DOWN' : 'ONLINE'}</span></div>
+        <div class="button-row">
+          <button class="adv-btn" id="btnToggleDevPower">${down ? '▶ Start Device' : '⏹ Shutdown Device'}</button>
+          <button class="adv-btn danger" id="btnDeleteDev">🗑 Delete</button>
+        </div>
+      </div>
+      <div class="inspector-section">
+        <div class="section-title">Interfaces (${dev.interfaces?.length || 0})</div>
+        ${(dev.interfaces || []).map(i => `
+          <div class="interface-card">
+            <div class="interface-head"><b>${esc(i.interface_id)}</b><span class="status-badge ${i.status === 'UP' ? 'status-up' : 'status-down'}">${i.status}</span></div>
+            <div>IP: ${esc(i.ip_address || 'Unassigned')} / ${i.prefix || 24}</div>
+            <div>MAC: ${esc(i.mac_address || '—')}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    $('btnToggleDevPower')?.addEventListener('click', async () => {
+      await api(down ? 'restart_device' : 'shutdown_device', {id: dev.id});
+      renderInspector();
+    });
+    $('btnDeleteDev')?.addEventListener('click', async () => {
+      await api('delete_device', {id: dev.id});
+      closeInspector();
+    });
+  } else if (selected.kind === 'link') {
+    const link = state.links?.find(l => key(l.source, l.target) === key(selected.id, selected.other));
+    if (!link) return;
+    if (title) title.textContent = `Link: ${link.source} ↔ ${link.target}`;
+    body.innerHTML = `
+      <div class="device-hero">
+        <div class="device-symbol">⌁</div>
+        <div><b>${esc(link.source)} ↔ ${esc(link.target)}</b><span>Bandwidth: ${fmt(link.bandwidth)}M · Latency: ${Math.round(link.latency)}ms</span></div>
+      </div>
+      <div class="inspector-section">
+        <div class="section-title">Conditions</div>
+        ${property('Latency', `${Math.round(link.latency)} ms`)}
+        ${property('Bandwidth', `${fmt(link.bandwidth)} Mbps`)}
+        ${property('Status', link.status)}
+        ${property('Congestion', `${fmt(link.congestion * 100, 1)}%`)}
+        <div class="button-row" style="margin-top:10px;">
+          <button class="adv-btn danger" id="btnToggleLink">${link.status === 'UP' ? 'Fail Link' : 'Recover Link'}</button>
+          <button class="adv-btn danger" id="btnDeleteLink">Delete Link</button>
+        </div>
+      </div>
+    `;
+
+    $('btnToggleLink')?.addEventListener('click', async () => {
+      await api('configure_link', {
+        source: link.source,
+        target: link.target,
+        values: {status: link.status === 'UP' ? 'DOWN' : 'UP'}
+      });
+      renderInspector();
+    });
+    $('btnDeleteLink')?.addEventListener('click', async () => {
+      await api('delete_link', {source: link.source, target: link.target});
+      closeInspector();
+    });
+  }
+}
+
+function openLegacyPanel(type) {
+  const drawer = $('inspectorDrawer');
+  const title = $('inspectorTitle');
+  const body = $('inspectorContent');
+  if (!drawer || !body) return;
+
+  drawer.style.display = 'flex';
+  if (title) title.textContent = `${type[0].toUpperCase() + type.slice(1)} Lab`;
+
+  if (type === 'transport') {
+    const flows = state.transport?.flows || [];
+    body.innerHTML = `
+      <div class="inspector-section">
+        <div class="section-title">Transport Flows (${flows.length})</div>
+        ${flows.length ? flows.map(f => `
+          <div class="interface-card">
+            <b>${esc(f.protocol)} Flow #${esc(f.flow_id)}</b>
+            <div>${esc(f.source)}:${f.source_port} ➔ ${esc(f.destination)}:${f.destination_port}</div>
+            <div>State: ${esc(f.state || 'ACTIVE')} · Packets: ${f.packets_sent || 0}</div>
+          </div>
+        `).join('') : '<p class="hint">No transport flows active. Start traffic to inspect TCP/UDP state machines.</p>'}
+      </div>
+    `;
+  } else if (type === 'services') {
+    const services = state.services?.status || [];
+    body.innerHTML = `
+      <div class="inspector-section">
+        <div class="section-title">Network Services (${services.length})</div>
+        ${services.length ? services.map(s => `
+          <div class="interface-card">
+            <b>${esc(s.name)} (Port ${s.port})</b>
+            <div>Host: ${esc(s.device)} · State: ${esc(s.state)}</div>
+          </div>
+        `).join('') : '<p class="hint">No background services installed on nodes.</p>'}
+      </div>
+    `;
+  } else if (type === 'packets') {
+    const packets = (state.packets || []).slice(-10).reverse();
+    body.innerHTML = `
+      <div class="inspector-section">
+        <div class="section-title">Recent Packets (${packets.length})</div>
+        ${packets.length ? packets.map(p => `
+          <div class="interface-card">
+            <b>Packet #${esc(p.id)} [${esc(p.status)}]</b>
+            <div>${esc(p.source)} ➔ ${esc(p.destination)} · ${esc(p.traffic_class || 'Video')}</div>
+            <div>Route: ${(p.route || []).join(' ➔ ') || 'None'}</div>
+          </div>
+        `).join('') : '<p class="hint">No packets in simulator queue.</p>'}
+      </div>
+    `;
+  } else if (type === 'quiz') {
+    const quiz = state.quiz || {};
+    body.innerHTML = `
+      <div class="inspector-section">
+        <div class="section-title">Self-Healing &amp; Networking Quiz</div>
+        <p class="hint">Interactive knowledge checks on self-healing SDN, congestion detection, and fast bypass rerouting.</p>
+        <div class="property"><label>Questions in Bank:</label><span>${quiz.catalog_size || 15}</span></div>
+        <div class="property"><label>Completed:</label><span>${quiz.score?.answered || 0}</span></div>
+      </div>
+    `;
+  } else {
+    body.innerHTML = `
+      <div class="inspector-section">
+        <div class="section-title">${esc(type)} Module</div>
+        <p class="hint">Advanced interactive ${esc(type)} suite from the educational laboratory.</p>
+      </div>
+    `;
+  }
 }
 
 async function runComparisonBenchmark() {

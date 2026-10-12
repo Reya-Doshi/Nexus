@@ -739,13 +739,14 @@ button, input, select {
   gap: 8px;
 }
 
-/* Collapsible Advanced Drawer */
+/* Inspector Drawer & Advanced Drawer */
+.inspector-drawer,
 .advanced-drawer {
   position: fixed;
   right: 0;
   top: 56px;
   bottom: 0;
-  width: 320px;
+  width: 340px;
   background: #0c1826;
   border-left: 1px solid var(--line-bright);
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.7);
@@ -753,6 +754,7 @@ button, input, select {
   display: flex;
   flex-direction: column;
 }
+.inspector-drawer-header,
 .advanced-drawer-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
@@ -760,12 +762,14 @@ button, input, select {
   justify-content: space-between;
   align-items: center;
 }
+.inspector-drawer-content,
 .advanced-drawer-content {
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+  flex: 1;
 }
 .advanced-button-grid {
   display: grid;
@@ -784,6 +788,41 @@ button, input, select {
 .adv-btn:hover {
   border-color: var(--cyan);
   background: #172e48;
+}
+
+.topology-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.canvas-tool-btn {
+  background: #112235;
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.canvas-tool-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.canvas-tool-btn.active {
+  background: var(--cyan);
+  color: #06111b;
+  font-weight: 700;
+  border-color: var(--cyan);
+}
+.canvas-tool-btn.danger:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+.canvas-tool-btn.danger.active {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
 }
 
 /* Canvas SVG Styles */
