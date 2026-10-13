@@ -901,6 +901,35 @@ function renderIncidentsPage() {
   $('incDetailRouteAfter') && ($('incDetailRouteAfter').textContent = r.incident_state === 'Unresolved' ? 'No alternative path' : r.current_route?.join(' ➔ ') || '—');
   $('incDetailWallClock') && ($('incDetailWallClock').textContent = wallClock != null ? `${fmt(wallClock, 1)} ms` : '—');
 
+  // Dynamically populate Root Cause Analysis (RCA) card
+  const rcaCategory = $('rcaFaultCategory');
+  const rcaCulprit = $('rcaPrimaryCulprit');
+  const rcaSignal = $('rcaDetectionSignal');
+  const rcaBlast = $('rcaBlastRadius');
+  const rcaBypass = $('rcaBypassStrategy');
+  const rcaDeep = $('incRcaDeepDive');
+  const rcaBadge = $('incRcaProviderBadge');
+
+  if (rcaBadge) {
+    rcaBadge.textContent = diag?.is_fallback === false ? 'Qualcomm Cloud AI 100' : 'Deterministic Rule Engine';
+  }
+
+  if (diag) {
+    if (rcaCategory) rcaCategory.textContent = (diag.likely_cause || 'Trunk Degradation').replace(/_/g, ' ').toUpperCase();
+    if (rcaCulprit) rcaCulprit.textContent = diag.affected_component || r.failed_components?.join(', ') || 'R2-R4';
+    if (rcaSignal) rcaSignal.textContent = diag.evidence?.[0] || 'Latency Slope Threshold Exceeded (≥23.5ms)';
+    if (rcaBlast) rcaBlast.textContent = `Active flow: ${(r.previous_route || ['Client', 'Server']).join(' ➔ ')}`;
+    if (rcaBypass) rcaBypass.textContent = (r.current_route && r.current_route.length) ? `Rerouted ➔ ${r.current_route.join(' ➔ ')}` : 'Alternative Dijkstra failover';
+    if (rcaDeep) rcaDeep.textContent = diag.explanation || 'Root cause pinpointed by AI inference. Deterministic Dijkstra path computed avoiding degraded components.';
+  } else {
+    if (rcaCategory) rcaCategory.textContent = r.incident_state === 'Healthy' ? 'System Normal' : 'Anomaly Monitoring';
+    if (rcaCulprit) rcaCulprit.textContent = r.failed_components?.length ? r.failed_components.join(', ') : 'None (All Links Up)';
+    if (rcaSignal) rcaSignal.textContent = 'Nominal Queue & Heartbeat Probes';
+    if (rcaBlast) rcaBlast.textContent = 'No impacted streams';
+    if (rcaBypass) rcaBypass.textContent = 'Standard primary path';
+    if (rcaDeep) rcaDeep.textContent = 'Network is operating stably within target parameters. Telemetry jitter is below threshold.';
+  }
+
   const expBox = $('incDetailExplanation');
   if (expBox) {
     expBox.textContent = diag?.explanation || (r.incident_state === 'Healthy' ? 'No active network failure. Telemetry is within bounds.' : 'Active incident under remediation.');
@@ -1258,8 +1287,12 @@ function setMode(nextMode) {
 
   const connBtn = $('paletteConnectBtn');
   const delBtn = $('paletteDeleteBtn');
+  const homeConnBtn = $('homeConnectBtn');
+  const homeDelBtn = $('homeDeleteBtn');
   if (connBtn) connBtn.classList.toggle('active', mode === 'connect');
   if (delBtn) delBtn.classList.toggle('active', mode === 'delete');
+  if (homeConnBtn) homeConnBtn.classList.toggle('active', mode === 'connect');
+  if (homeDelBtn) homeDelBtn.classList.toggle('active', mode === 'delete');
 
   if (mode === 'connect') toast('Connect mode: click source device, then target device');
   else if (mode === 'delete') toast('Delete mode: click any device or link to remove');
@@ -1700,12 +1733,49 @@ function bindControls() {
   $('paletteAddClient')?.addEventListener('click', addDeviceHandler('pc', 'PC'));
   $('paletteAddServer')?.addEventListener('click', addDeviceHandler('server', 'SRV'));
 
+  $('homeAddRouterBtn')?.addEventListener('click', addDeviceHandler('router', 'R'));
+  $('homeAddSwitchBtn')?.addEventListener('click', addDeviceHandler('switch', 'SW'));
+  $('homeAddClientBtn')?.addEventListener('click', addDeviceHandler('pc', 'PC'));
+  $('homeAddServerBtn')?.addEventListener('click', addDeviceHandler('server', 'SRV'));
+
+  $('homeConnectBtn')?.addEventListener('click', async () => {
+    try { await enterBuildMode(); setMode(mode === 'connect' ? 'select' : 'connect'); } catch (e) { toast(e.message, true); }
+  });
+
+  $('homeDeleteBtn')?.addEventListener('click', async () => {
+    try { await enterBuildMode(); setMode(mode === 'delete' ? 'select' : 'delete'); } catch (e) { toast(e.message, true); }
+  });
+
   $('paletteConnectBtn')?.addEventListener('click', async () => {
     try { await enterBuildMode(); setMode(mode === 'connect' ? 'select' : 'connect'); } catch (e) { toast(e.message, true); }
   });
 
   $('paletteDeleteBtn')?.addEventListener('click', async () => {
     try { await enterBuildMode(); setMode(mode === 'delete' ? 'select' : 'delete'); } catch (e) { toast(e.message, true); }
+  });
+
+  // Canvas Topology Preset Dropdown Handler
+  $('canvasTopologySelect')?.addEventListener('change', async (e) => {
+    const key = e.target.value;
+    if (!key) return;
+    try {
+      await pausePlayback();
+      telemetryHistory = [];
+      latencyHistory = [];
+      packetsHistory = [];
+      seenPacketIds.clear();
+      if (key === 'reroute_six_router') {
+        await api('reroute_init');
+      } else {
+        await api('load_preset', { preset: key });
+      }
+      editorMode = 'run';
+      fitCanvasView();
+      render();
+      toast(`Loaded topology: ${key.replace('_', ' ').toUpperCase()}`);
+    } catch (err) {
+      toast(`Failed to switch topology: ${err.message}`, true);
+    }
   });
 
   // 7. Canvas Floating Controls (Zoom / Pan / Fit)

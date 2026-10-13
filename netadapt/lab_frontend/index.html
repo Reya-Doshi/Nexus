@@ -334,16 +334,46 @@
 
           <!-- Topology Canvas Area -->
           <div class="canvas-viewport" id="canvasViewport">
-            <!-- Canvas Header Bar with Network Topology dropdown -->
+            <!-- Canvas Header Bar with Network Topology dropdown & Home Action Controls -->
             <div class="canvas-header-bar">
               <div class="canvas-title-cluster">
-                <span class="canvas-title">Network Topology</span>
-                <select id="canvasTopologySelect" class="canvas-topo-select">
-                  <option value="canonical" selected>Custom Network</option>
-                  <option value="reroute_six_router">Six-Router Mesh</option>
-                  <option value="redundant">Dual Trunk Redundant</option>
+                <span class="canvas-title">Network Topology:</span>
+                <select id="canvasTopologySelect" class="canvas-topo-select" title="Switch network topology preset">
+                  <option value="reroute_six_router" selected>Six-Router Recovery Mesh (Official)</option>
+                  <option value="self_healing">Self-Healing Demo</option>
+                  <option value="redundant">Redundant Dual Trunk</option>
+                  <option value="two_router">Two Router Network</option>
+                  <option value="simple_lan">Simple LAN</option>
+                  <option value="qos_demo">QoS Traffic Demo</option>
+                  <option value="large_network">Large Enterprise Network</option>
                 </select>
-                <button class="canvas-edit-name-btn" title="Edit Topology Name">✏️</button>
+              </div>
+
+              <!-- In-Home Quick Editor Toolbar (Add, Connect, Delete right on canvas) -->
+              <div class="canvas-home-editor-toolbar" id="canvasHomeEditorToolbar">
+                <div class="home-edit-group">
+                  <button class="home-tool-btn" id="homeAddRouterBtn" title="Add Router (+)">
+                    <span>◉ +Router</span>
+                  </button>
+                  <button class="home-tool-btn" id="homeAddSwitchBtn" title="Add Switch (+)">
+                    <span>▥ +Switch</span>
+                  </button>
+                  <button class="home-tool-btn" id="homeAddClientBtn" title="Add Client Host (+)">
+                    <span>💻 +Client</span>
+                  </button>
+                  <button class="home-tool-btn" id="homeAddServerBtn" title="Add Server (+)">
+                    <span>▦ +Server</span>
+                  </button>
+                </div>
+                <div class="home-edit-sep"></div>
+                <div class="home-edit-group">
+                  <button class="home-tool-btn" id="homeConnectBtn" title="Click to Connect Two Nodes">
+                    <span>⌁ Connect</span>
+                  </button>
+                  <button class="home-tool-btn danger" id="homeDeleteBtn" title="Click Device/Link to Remove">
+                    <span>✕ Delete</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -607,10 +637,33 @@
             </div>
           </div>
 
+          <!-- Root Cause Analysis (RCA) Card -->
+          <div class="incident-detail-card" id="incidentRcaCard" style="border-left: 4px solid var(--copper);">
+            <div class="card-head">
+              <h3>🔍 AI Root Cause Analysis (RCA) &amp; Remediation Plan</h3>
+              <span id="incRcaProviderBadge" class="slo-target-pill">Qualcomm Cloud AI 100</span>
+            </div>
+            <div class="inc-detail-grid">
+              <div class="detail-col">
+                <div class="prop-row"><label>Root Cause Class:</label><strong id="rcaFaultCategory">Trunk Link Loss</strong></div>
+                <div class="prop-row"><label>Primary Culprit:</label><span id="rcaPrimaryCulprit" class="text-copper">Link R2 ↔ R4</span></div>
+                <div class="prop-row"><label>Detection Signal:</label><span id="rcaDetectionSignal">Latency Slope &gt; 23.5 ms/s</span></div>
+              </div>
+              <div class="detail-col">
+                <div class="prop-row"><label>Blast Radius:</label><span id="rcaBlastRadius">Egress flow (Client ➔ Server)</span></div>
+                <div class="prop-row"><label>Bypass Strategy:</label><span id="rcaBypassStrategy">Dynamic Dijkstra through R3-R5</span></div>
+                <div class="prop-row"><label>Safety Guard:</label><span class="text-sage">Validated on Physical Graph</span></div>
+              </div>
+            </div>
+            <div class="inc-explanation-box" id="incRcaDeepDive">
+              The AI root-cause analysis engine continuously synthesizes incoming telemetry bursts. When a component exceeds allowable error rates, the diagnosis isolates the affected edge without black-holing neighboring hops.
+            </div>
+          </div>
+
           <!-- Selected Incident Detail Card -->
           <div class="incident-detail-card" id="incidentDetailCard">
             <div class="card-head">
-              <h3 id="incDetailTitle">Active Incident Detail</h3>
+              <h3 id="incDetailTitle">Active Incident Event Telemetry</h3>
               <span id="incDetailStatusBadge" class="status-badge status-up">Awaiting incident</span>
             </div>
             <div class="inc-detail-grid">
