@@ -21,46 +21,18 @@ Unlike conventional reactive routing protocols or brittle automation scripts, NE
 
 ```mermaid
 flowchart TB
-    subgraph PRESENTATION ["1. Presentation & Interaction Layer"]
-        UI["NEXUS Web Dashboard<br/>HTML5 / SVG / CSS / Vanilla JS"]
-        CANVAS["Live Canvas Viewport<br/>Dynamic Topology & Real-time Animation"]
-        CONTROLS["Simulation Controls<br/>Fault Triggers & A/B Comparison"]
-        UI --> CANVAS
-        UI --> CONTROLS
-    end
+    UI["🖥️ Web Dashboard (HTML5 / SVG / Vanilla JS)<br/>Interactive Topology • Fault Triggers • Real-time Packet Animation"]
 
-    subgraph ENGINE ["2. Simulation & Telemetry Control Plane (Python)"]
-        API["REST API Server<br/>LabSession Engine"]
-        SIM["NetAdapt Discrete-Event Simulator<br/>Queue Model & Multi-Path Forwarding"]
-        TELEM["Rolling Telemetry Collector<br/>PDR, Latency, Jitter, Heartbeats"]
-        DETECTOR["Explainable Anomaly Detector<br/>Predictive Early Warning"]
-        API --> SIM
-        SIM --> TELEM
-        TELEM --> DETECTOR
-    end
+    SIM["⚙️ Python Simulation Core (LabSession Engine)<br/>Discrete-Event Packet Engine • Rolling Telemetry • NetworkX Graph"]
 
-    subgraph AI_LAYER ["3. Hardware-Accelerated Inference (Qualcomm)"]
-        AI_CLIENT["Asynchronous AI Client<br/>Non-Blocking Worker & Epoch Control"]
-        Q_CLOUD["Qualcomm Cloud AI 100 on Cirrascale<br/>Llama-3.1-8B Dedicated LLM Inference"]
-        RULE_FB["Deterministic Rule Fallback<br/>Failsafe on WAN Timeout"]
-        AI_CLIENT --> Q_CLOUD
-        AI_CLIENT -.-> RULE_FB
-    end
+    AI["🧠 Qualcomm Cloud AI 100 (Cirrascale)<br/>Llama-3.1-8B Inference • Telemetry Root-Cause Diagnosis"]
 
-    subgraph SAFETY_LAYER ["4. Deterministic Safety & Healing Engine"]
-        GUARD["Graph Topology Validator<br/>Rejects Hallucinated Components"]
-        HEALING["Deterministic Routing Controller<br/>Dijkstra Bypass Path Computation"]
-        VERIFY["Closed-Loop Recovery Verifier<br/>5-Packet Delivery Check & SLO Evaluation"]
-        GUARD --> HEALING
-        HEALING --> VERIFY
-    end
+    HEAL["🛡️ Deterministic Safety & Rerouting Engine<br/>Topology Guardrails • Dynamic Dijkstra Bypass • 5-Packet Verification"]
 
-    PRESENTATION --> API
-    DETECTOR --> AI_CLIENT
-    AI_CLIENT --> GUARD
-    RULE_FB --> GUARD
-    HEALING --> SIM
-    VERIFY --> API
+    UI <--> |"REST API / State Polling"| SIM
+    SIM --> |"Anomaly Telemetry"| AI
+    AI --> |"Diagnosed Cause & Action"| HEAL
+    HEAL --> |"Apply Verified Bypass Route"| SIM
 ```
 
 ---
