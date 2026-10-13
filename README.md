@@ -10,7 +10,7 @@
 **NEXUS** is an autonomous, closed-loop network simulation and self-healing platform. It combines a high-fidelity discrete-event packet simulation engine with hardware-accelerated **Qualcomm Cloud AI 100** inference (running Llama-3.1-8B on Cirrascale) to detect network degradation, explain root causes from live telemetry, dynamically reroute traffic, and strictly verify recovery before declaring success.
 
 Unlike conventional reactive routing protocols or brittle automation scripts, NEXUS:
-1. **Predicts degradation before service impact**: Detects subtle congestion slope and queue latency at ~24 ms, rerouting before breaching the 30.0 ms SLO.
+1. **Predictive degradation detection**: Detects rising edge congestion (utilization ≥ 20%) and path latency approaching the pre-breach guard threshold (≥ 23.5 ms), triggering AI diagnostic triage before unmitigated queue backup breaches the 30.0 ms Primary SLO target.
 2. **Operates asynchronously without packet stalling**: Simulation and packet forwarding run at wire speed; AI queries dispatch non-blockingly with epoch invalidation.
 3. **Enforces deterministic graph safety guardrails**: AI suggestions are verified against physical NetworkX topology—hallucinated components are rejected.
 4. **Validates recovery with closed-loop evidence**: A recovery is declared only after 5 consecutive packets are verified on the replacement route. If all alternative paths are severed, the system honestly reports an **Unresolved** outcome rather than claiming false success.

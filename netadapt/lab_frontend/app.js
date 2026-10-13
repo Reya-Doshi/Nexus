@@ -164,9 +164,19 @@ function routeIsConnected(route) {
 
 function routeEdges() {
   const edges = new Set();
+  // If custom flows are active, always prioritize the active custom flow path
+  const activeFlow = (state?.flows || []).find(f => f.status === 'ACTIVE' && Array.isArray(f.route) && f.route.length > 1);
+  if (activeFlow) {
+    for (let i = 0; i < activeFlow.route.length - 1; i++) {
+      edges.add(key(activeFlow.route[i], activeFlow.route[i + 1]));
+    }
+    return edges;
+  }
+
+  // Otherwise, fallback to the recovery controller route if demo is active and resolved
   if (state?.reroute?.incident_state === 'Unresolved') return edges;
   const currentRoute = state?.reroute?.current_route;
-  if (Array.isArray(currentRoute) && currentRoute.length > 1) {
+  if (isDemoTopology() && Array.isArray(currentRoute) && currentRoute.length > 1) {
     for (let i = 0; i < currentRoute.length - 1; i++) {
       edges.add(key(currentRoute[i], currentRoute[i + 1]));
     }
@@ -547,6 +557,16 @@ function updateKPIs(rerouteState) {
   }
 
   // Update telemetry history buffers
+  // Update telemetry history buffers
+  const sentPackets = Number(state?.overview?.packets_sent ?? state?.metrics?.sent ?? rerouteState?.telemetry?.total_observed ?? 0);
+  if (sentPackets === 0) {
+    telemetryHistory = [];
+    latencyHistory = [];
+    packetsHistory = [];
+    renderTelemetryTripleCharts();
+    return;
+  }
+
   if (state?.running || telemetryHistory.length === 0) {
     telemetryHistory.push({ time: state?.time || 0, pdr: pdr });
     if (telemetryHistory.length > 40) telemetryHistory.shift();
@@ -562,25 +582,37 @@ function updateKPIs(rerouteState) {
 }
 
 function renderTelemetryTripleCharts() {
+  const sentPackets = Number(state?.overview?.packets_sent ?? state?.metrics?.sent ?? 0);
+  const deliveredPackets = Number(state?.overview?.packets_delivered ?? state?.metrics?.delivered ?? 0);
+
   // 1. Delivery Rate (%) Area Chart
   const dArea = $('chartDeliveryArea');
   const dLine = $('chartDeliveryLine');
   const dStat = $('subChartDeliveryStat');
   if (dStat) {
-    const curPdr = state?.metrics?.pdr ?? state?.overview?.packet_delivery_ratio ?? 100.0;
-    dStat.textContent = `${fmt(curPdr, 1)}%`;
+    if (sentPackets === 0) {
+      dStat.textContent = '100.0%';
+    } else {
+      const curPdr = state?.metrics?.pdr ?? state?.overview?.packet_delivery_ratio ?? (deliveredPackets / Math.max(1, sentPackets) * 100);
+      dStat.textContent = `${fmt(curPdr, 1)}%`;
+    }
   }
-  if (dArea && dLine && telemetryHistory.length > 0) {
-    const w = 280, h = 75;
-    const pts = telemetryHistory.map((pt, idx) => {
-      const x = (idx / Math.max(1, telemetryHistory.length - 1)) * w;
-      const y = h - (Math.max(0, Math.min(100, pt.pdr)) / 100) * (h - 22) - 10;
-      return [x, y];
-    });
-    const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-    const areaD = `${lineD} L ${w} ${h} L 0 ${h} Z`;
-    dLine.setAttribute('d', lineD);
-    dArea.setAttribute('d', areaD);
+  if (dArea && dLine) {
+    if (sentPackets === 0 || telemetryHistory.length === 0) {
+      dLine.setAttribute('d', 'M 0 20 L 280 20');
+      dArea.setAttribute('d', 'M 0 20 L 280 20 L 280 75 L 0 75 Z');
+    } else {
+      const w = 280, h = 75;
+      const pts = telemetryHistory.map((pt, idx) => {
+        const x = (idx / Math.max(1, telemetryHistory.length - 1)) * w;
+        const y = h - (Math.max(0, Math.min(100, pt.pdr)) / 100) * (h - 22) - 10;
+        return [x, y];
+      });
+      const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+      const areaD = `${lineD} L ${w} ${h} L 0 ${h} Z`;
+      dLine.setAttribute('d', lineD);
+      dArea.setAttribute('d', areaD);
+    }
   }
 
   // 2. Latency (ms) Line Chart with SLO Target
@@ -588,22 +620,31 @@ function renderTelemetryTripleCharts() {
   const lStat = $('subChartLatencyStat');
   const lDots = $('chartLatencyDots');
   if (lStat) {
-    const curLat = state?.metrics?.latency ?? state?.overview?.average_latency_ms;
-    lStat.textContent = curLat != null ? `${fmt(curLat, 1)} ms` : 'N/A';
+    if (sentPackets === 0 || deliveredPackets === 0) {
+      lStat.textContent = '—';
+    } else {
+      const curLat = state?.metrics?.latency ?? state?.overview?.average_latency_ms;
+      lStat.textContent = curLat != null ? `${fmt(curLat, 1)} ms` : '—';
+    }
   }
-  if (lLine && latencyHistory.length > 0) {
-    const w = 280, h = 75;
-    const maxLat = 55.0;
-    const pts = latencyHistory.map((pt, idx) => {
-      const x = (idx / Math.max(1, latencyHistory.length - 1)) * w;
-      const val = pt.lat != null ? Math.min(maxLat, pt.lat) : 19.0;
-      const y = h - (val / maxLat) * (h - 22) - 8;
-      return [x, y];
-    });
-    const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-    lLine.setAttribute('d', lineD);
-    if (lDots) {
-      lDots.innerHTML = pts.slice(-5).map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="#F59E0B"/>`).join('');
+  if (lLine) {
+    if (sentPackets === 0 || latencyHistory.length === 0) {
+      lLine.setAttribute('d', '');
+      if (lDots) lDots.innerHTML = '';
+    } else {
+      const w = 280, h = 75;
+      const maxLat = 55.0;
+      const pts = latencyHistory.map((pt, idx) => {
+        const x = (idx / Math.max(1, latencyHistory.length - 1)) * w;
+        const val = pt.lat != null ? Math.min(maxLat, pt.lat) : 19.0;
+        const y = h - (val / maxLat) * (h - 22) - 8;
+        return [x, y];
+      });
+      const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+      lLine.setAttribute('d', lineD);
+      if (lDots) {
+        lDots.innerHTML = pts.slice(-5).map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="#F59E0B"/>`).join('');
+      }
     }
   }
 
@@ -741,27 +782,27 @@ function renderInspector() {
     if (subtitle) subtitle.textContent = `${TYPES[dev.type] || dev.type} · ${down ? 'DOWN' : 'Healthy'}`;
 
     const ip = `10.0.${dev.name.replace(/\D/g, '') || '1'}.1`;
-    const cpu = Math.floor(18 + Math.abs(Math.sin((state?.time || 0) * 0.5) * 12));
-    const mem = Math.floor(32 + Math.abs(Math.cos((state?.time || 0) * 0.3) * 10));
     const uptime = clock(state?.time || 0);
+    const ifaceCount = dev.interfaces?.length || 2;
+    const activeIfaceCount = (dev.interfaces || []).filter(i => i.status !== 'DOWN').length || ifaceCount;
+
+    // Honest observable metrics from queue depth and packet volume
+    const queueDepth = Math.min(100, Math.round(((state?.queue?.length || 0) / Math.max(1, state?.queue?.max || 20)) * 100));
+    const activeFlows = (state?.flows || []).filter(f => f.status === 'ACTIVE').length;
 
     if (inspectorTab === 'overview' || inspectorTab === 'node') {
       body.innerHTML = `
         <div class="ins-section">
           <div class="prop-row"><label>Type</label><strong>${esc(TYPES[dev.type] || dev.type)}</strong></div>
           <div class="prop-row"><label>IP Address</label><span>${ip}</span></div>
-          <div class="prop-row"><label>Interfaces</label><span>${dev.interfaces?.length || 3} (2 active)</span></div>
+          <div class="prop-row"><label>Interfaces</label><span>${ifaceCount} (${activeIfaceCount} active)</span></div>
           
           <div class="prop-metric-bar">
-            <div class="metric-bar-head"><span>CPU Usage</span><strong>${cpu}%</strong></div>
-            <div class="progress-track"><div class="progress-fill green-fill" style="width:${cpu}%;"></div></div>
+            <div class="metric-bar-head"><span>Queue Buffer Load</span><strong>${queueDepth}%</strong></div>
+            <div class="progress-track"><div class="progress-fill green-fill" style="width:${Math.max(4, queueDepth)}%;"></div></div>
           </div>
 
-          <div class="prop-metric-bar">
-            <div class="metric-bar-head"><span>Memory Usage</span><strong>${mem}%</strong></div>
-            <div class="progress-track"><div class="progress-fill teal-fill" style="width:${mem}%;"></div></div>
-          </div>
-
+          <div class="prop-row"><label>Active Flows</label><span>${activeFlows} stream${activeFlows === 1 ? '' : 's'}</span></div>
           <div class="prop-row"><label>Uptime</label><span>${uptime}</span></div>
         </div>
 
@@ -1493,6 +1534,9 @@ function bindControls() {
         $('pageConnections').style.display = 'flex';
         $('pageConnections').classList.add('active-page');
         loadConnectionsPage();
+      } else if (pageName === 'about') {
+        $('pageAbout').style.display = 'flex';
+        $('pageAbout').classList.add('active-page');
       }
     });
   });

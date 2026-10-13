@@ -47,6 +47,13 @@
           <span>Connections</span>
         </button>
 
+        <button class="nav-item" data-page="about" id="navAboutBtn">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+          </svg>
+          <span>About / Tech Stack</span>
+        </button>
+
         <button class="nav-item theme-nav-toggle" id="sidebarThemeToggleBtn" title="Toggle Light / Dark Theme">
           <span class="nav-icon" style="font-size:16px; display:grid; place-items:center;" id="sidebarThemeIcon">🌙</span>
           <span id="sidebarThemeLabel">Dark Mode</span>
@@ -788,6 +795,166 @@
                 <div class="prop-row" style="margin-top:14px;">
                   <button id="btnSendTestTelegram" class="primary-play-btn">✉ Send Telegram Test Alert</button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. ABOUT / TECH STACK PAGE -->
+      <section id="pageAbout" class="nexus-page" style="display:none;">
+        <header class="page-topbar">
+          <div class="topbar-left">
+            <h1 class="page-title">About Nexus &amp; Architecture</h1>
+            <span class="project-pill">NC-04: Self-Healing Network Simulator • Qualcomm Cloud AI 100</span>
+          </div>
+        </header>
+
+        <div class="page-container" style="max-width: 1200px; margin: 0 auto; width: 100%;">
+          <!-- Problem Statement & Mission -->
+          <div class="connection-card">
+            <div class="conn-card-header">
+              <div class="conn-ic">🎯</div>
+              <div>
+                <h3>NC-04 Problem Statement &amp; Purpose</h3>
+                <span>Autonomous, AI-Assisted Telemetry Monitoring, Root-Cause Diagnosis, and Dynamic Healing</span>
+              </div>
+              <span class="conn-status-badge status-up">Solved</span>
+            </div>
+            <div class="conn-card-body" style="font-size: 13px; line-height: 1.6; color: var(--text-main);">
+              <p style="margin-bottom: 10px;">
+                <strong>Challenge:</strong> Modern distributed systems experience silent link degradations, optical jitter, and transient micro-burst queue build-ups. Traditional reactive routing takes seconds to minutes to converge, causing bufferbloat, SLA breaches, and dropped customer transactions.
+              </p>
+              <p>
+                <strong>Nexus Solution:</strong> A closed-loop, self-healing network simulator powered by the <strong>Qualcomm Cloud AI 100 Playground</strong> (Llama-3.1-8B on Cirrascale). Nexus detects rising edge queue congestion (&ge; 20%) and path latency approaching the proactive threshold (&ge; 23.5 ms), triggers non-blocking LLM root-cause triage, applies topology-verified Dijkstra bypass routes, and proves recovery across 5 consecutive packets before user SLOs (&le; 30.0 ms) are breached.
+              </p>
+            </div>
+          </div>
+
+          <!-- Tech Stack Grid -->
+          <div class="connections-grid">
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">⚡</div>
+                <div>
+                  <h3>Discrete-Event Simulator Core</h3>
+                  <span>Python 3.12 Engine</span>
+                </div>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>Engine:</label><span>LabSession event-driven packet simulator</span></div>
+                <div class="prop-row"><label>Topology:</label><span>NetworkX dynamic directed graph</span></div>
+                <div class="prop-row"><label>Telemetry:</label><span>Real queue buffer depth, sliding latency, loss rates</span></div>
+                <div class="prop-row"><label>Non-Blocking:</label><span>Threaded asynchronous AI dispatch with epoch protection</span></div>
+              </div>
+            </div>
+
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">🧠</div>
+                <div>
+                  <h3>Qualcomm Cloud AI 100</h3>
+                  <span>Hardware-Accelerated Diagnostic Brain</span>
+                </div>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>Platform:</label><span>Cirrascale AI Playground</span></div>
+                <div class="prop-row"><label>Model:</label><span>Meta Llama-3.1-8B (REST v2)</span></div>
+                <div class="prop-row"><label>Parser:</label><span>Markdown-tolerant structured JSON extraction</span></div>
+                <div class="prop-row"><label>Safety Layer:</label><span>Deterministic rule fallback if endpoint unreachable</span></div>
+              </div>
+            </div>
+
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">🖥️</div>
+                <div>
+                  <h3>Lab Dashboard &amp; Canvas</h3>
+                  <span>Interactive Real-time Visualizer</span>
+                </div>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>UI Framework:</label><span>HTML5, CSS3 Grid/Flexbox, Native SVG</span></div>
+                <div class="prop-row"><label>Interactivity:</label><span>Vanilla JavaScript (Zero heavy UI dependencies)</span></div>
+                <div class="prop-row"><label>Modes:</label><span>Build (drag/drop/wire) &amp; Run (packet flow)</span></div>
+                <div class="prop-row"><label>Theme:</label><span>Dark Mode &amp; High-Contrast Clean Light Mode</span></div>
+              </div>
+            </div>
+
+            <div class="connection-card">
+              <div class="conn-card-header">
+                <div class="conn-ic">🛡️</div>
+                <div>
+                  <h3>Closed-Loop Verification</h3>
+                  <span>Deterministic Recovery Guardrails</span>
+                </div>
+              </div>
+              <div class="conn-card-body">
+                <div class="prop-row"><label>Rerouting:</label><span>Dynamic Dijkstra shortest path bypass</span></div>
+                <div class="prop-row"><label>Hallucination Guard:</label><span>Strict topology membership validation</span></div>
+                <div class="prop-row"><label>Evidence:</label><span>5-packet delivery proof requirement</span></div>
+                <div class="prop-row"><label>SLO Thresholds:</label><span>Primary &le; 30.0 ms • Secondary &le; 50.0 ms</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5-Step Detect-Diagnose-Heal Loop Workflow -->
+          <div class="connection-card">
+            <div class="conn-card-header">
+              <div class="conn-ic">🔄</div>
+              <div>
+                <h3>The 5-Step Detect &rarr; Diagnose &rarr; Heal &rarr; Verify Closed Loop</h3>
+                <span>Continuous safe evaluation without touching live production infrastructure</span>
+              </div>
+            </div>
+            <div class="conn-card-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 8px;">
+              <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+                <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">1. DETECT</div>
+                <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
+                  <code>ExplainableDetector</code> continuously monitors buffer queues and latency. Flags rising congestion &ge; 20% or latency &ge; 23.5 ms before SLA breach.
+                </div>
+              </div>
+              <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+                <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">2. TRIGGER</div>
+                <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
+                  Spawns an asynchronous background worker thread. Simulator continues packet streaming at wire speed with epoch invalidation.
+                </div>
+              </div>
+              <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+                <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">3. DIAGNOSE</div>
+                <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
+                  Qualcomm Cloud AI 100 infers root cause (e.g. <code>HIGH_CONGESTION</code>, <code>LINK_FAILURE</code>) from raw telemetry and isolates faulty hops.
+                </div>
+              </div>
+              <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+                <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">4. REROUTE</div>
+                <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
+                  Deterministic graph safety layer validates path viability in NetworkX, preventing hallucinations, and installs verified Dijkstra bypass route.
+                </div>
+              </div>
+              <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+                <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">5. VERIFY</div>
+                <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
+                  Requires 5 consecutive packets delivered on the new path to certify recovery. If severed, honestly declares Unresolved.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Team Setu & College Info -->
+          <div class="connection-card">
+            <div class="conn-card-header">
+              <div class="conn-ic">👥</div>
+              <div>
+                <h3>Team Setu</h3>
+                <span>Bhoj Reddy Engineering College for Women, Hyderabad • HACK-AI-THON 2026 (Infosys &amp; Qualcomm)</span>
+              </div>
+            </div>
+            <div class="conn-card-body">
+              <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <div><strong>Reya Doshi</strong> &mdash; Team Lead / Systems Architecture</div>
+                <div><strong>D. Swathi</strong> &mdash; Network Protocols &amp; Telemetry</div>
+                <div><strong>Amula Pranathi</strong> &mdash; AI Integration &amp; Visualizations</div>
               </div>
             </div>
           </div>
