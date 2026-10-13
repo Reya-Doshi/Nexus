@@ -12,18 +12,21 @@ const connectPreview = $('connectPreview');
 // State
 let state = null;
 let mode = 'select'; // 'select' | 'connect' | 'delete'
-let editorMode = 'run'; // 'build' | 'run'
+let editorMode = 'build'; // 'build' | 'run'
 let selected = null; // { kind: 'device'|'link', id: string, other?: string }
 let inspectorTab = 'overview'; // 'overview' | 'routes' | 'events'
 let connectStart = null;
 let drag = null;
 let seenPacketIds = new Set();
 let playTimer = null;
+let playbackEpoch = 0;
+let pendingStep = Promise.resolve();
 let zoom = 1.0;
 let pan = { x: 0, y: 0 };
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let isInjecting = false; // Debounce flag
+let lastComparison = null;
 let telemetryHistory = []; // Buffer of { time, pdr } for SVG sparkline
 
 const TYPES = {
@@ -109,14 +112,9 @@ async function api(action, payload = {}) {
 async function loadState() {
   const response = await fetch('/api/state');
   state = await response.json();
-  if (!state?.devices?.some(d => d.id === 'Client')) {
-    await api('reroute_init');
-  } else {
-    render();
-    if (state.running) {
-      play();
-    }
-  }
+  editorMode = state.running ? 'run' : 'build';
+  render();
+  if (state.running) play();
 }
 
 // -----------------------------------------------------------------------------
@@ -157,8 +155,14 @@ function nodeMarkup(device) {
   </g>`;
 }
 
+function routeIsConnected(route) {
+  if (!Array.isArray(route) || route.length < 2) return false;
+  return route.every(id => state.devices?.some(d => d.id === id && d.status !== 'DOWN')) && route.slice(1).every((id, i) => state.links?.some(l => ((l.source === route[i] && l.target === id) || (l.target === route[i] && l.source === id)) && l.status !== 'DOWN'));
+}
+
 function routeEdges() {
   const edges = new Set();
+  if (state?.reroute?.incident_state === 'Unresolved') return edges;
   const currentRoute = state?.reroute?.current_route;
   if (Array.isArray(currentRoute) && currentRoute.length > 1) {
     for (let i = 0; i < currentRoute.length - 1; i++) {
@@ -211,7 +215,7 @@ function renderCanvas() {
   const edges = routeEdges();
   linkLayer.innerHTML = (state.links || []).map(l => linkMarkup(l, edges.has(key(l.source, l.target)))).join('');
   nodeLayer.innerHTML = (state.devices || []).map(nodeMarkup).join('');
-  
+
   const empty = $('canvasEmpty');
   if (empty) empty.style.display = state.devices?.length ? 'none' : 'grid';
 
@@ -238,12 +242,14 @@ function renderCanvas() {
   });
 
   const packets = state.packets || [];
+  if (Number(state.metrics?.sent || 0) === 0) { seenPacketIds.clear(); packetLayer.innerHTML = ''; routeLayer.innerHTML = ''; }
   if (!packets.length) {
     seenPacketIds.clear();
     packetLayer.innerHTML = '';
     routeLayer.innerHTML = '';
   }
   packets.forEach(packet => {
+    if (!['DELIVERED', 'DROPPED'].includes(packet.status)) return;
     const packetKey = String(packet.id);
     if (!seenPacketIds.has(packetKey)) {
       seenPacketIds.add(packetKey);
@@ -280,7 +286,7 @@ function animatePacket(packet) {
 
   packetLayer.insertAdjacentHTML('beforeend',
     `<path id="${id}" d="${d}" fill="none" stroke="none"/>
-     <g class="packet" data-packet="${packet.id}" style="color:${color}">
+     <g id="${id}-sprite" class="packet" data-packet="${packet.id}" style="color:${color}">
        <circle class="packet-ring" r="7"/>
        <circle class="packet-core" r="2.5"/>
        <text class="packet-label" y="-12">P${packet.id}</text>
@@ -293,6 +299,7 @@ function animatePacket(packet) {
   setTimeout(() => {
     const el = document.getElementById(id);
     if (el) el.remove();
+    document.getElementById(`${id}-sprite`)?.remove();
   }, Math.max(900, route.length * 360) + 300);
 }
 
@@ -350,42 +357,87 @@ function updateStatusSentence(rerouteState, isRunning) {
   const failed = rerouteState?.failed_components || [];
 
   let text = '';
-  let dotClass = 'text-sage';
+  let icon = '✔';
+  let bannerClass = 'status-healthy';
 
-  if (!isRunning && (!state.flows || !state.flows.some(f => f.status === 'ACTIVE'))) {
+  if (incident === 'Healthy' && !isRunning && (!state.flows || !state.flows.some(f => f.status === 'ACTIVE'))) {
     text = 'Simulation ready. Click "▶ Start" to stream traffic through the topology.';
+    icon = '●';
+    bannerClass = '';
   } else if (incident === 'Healthy') {
-    text = `Traffic streaming along ${routeStr}. 100% packet delivery.`;
+    text = `Traffic streaming along ${routeStr}. ${fmt(state.metrics?.pdr, 1)}% total packet delivery.`;
+    icon = '✔';
+    bannerClass = 'status-healthy';
   } else if (incident === 'Warning') {
     text = `Telemetry anomaly detected on ${failed.join(', ') || 'trunk link'}. Evaluating persistence...`;
-    dotClass = 'text-copper';
+    icon = '⚠';
+    bannerClass = 'status-warning';
   } else if (incident === 'Detected') {
     text = `Fault verified on ${failed.join(', ') || 'link'}. Engaging non-blocking AI diagnostic engine...`;
-    dotClass = 'text-copper';
+    icon = '⚡';
+    bannerClass = 'status-warning';
   } else if (incident === 'Diagnosing') {
-    text = `Qualcomm Cloud AI analyzing metrics. Diagnosing root cause...`;
-    dotClass = 'text-copper';
+    text = `Analyzing observed telemetry with Qualcomm Cloud AI 100 on Cirrascale...`;
+    icon = '⚡';
+    bannerClass = 'status-warning';
   } else if (incident === 'Action selected') {
     if (!autoHeal) {
-      text = `Fault confirmed. Auto-Heal is OFF: baseline preserved, packets dropping permanently.`;
-      dotClass = 'text-copper';
+      text = `Fault confirmed. Auto-Heal is OFF: baseline preserved, automatic route changes are paused.`;
+      icon = '✖';
+      bannerClass = 'status-failure';
     } else {
       text = `Action approved: Rerouting traffic to deterministic alternative bypass route.`;
+      icon = '⚡';
+      bannerClass = 'status-warning';
     }
   } else if (incident === 'Rerouting') {
     text = `Applying bypass path (${routeStr}). Updating flow tables...`;
+    icon = '⚡';
+    bannerClass = 'status-warning';
   } else if (incident === 'Verifying') {
     text = `Traffic switched to bypass route (${routeStr}). Verifying 5 consecutive successful packet deliveries...`;
-    dotClass = 'text-copper';
+    icon = '●';
+    bannerClass = 'status-warning';
   } else if (incident === 'Recovered') {
     const dur = rerouteState?.metrics?.recovery_time_sim_time;
-    text = `Recovery verified! 5 consecutive packets delivered on bypass route${dur != null ? ` in ${dur.toFixed(2)}s` : ''}. Service restored.`;
+    const durStr = dur != null ? ` in ${dur.toFixed(2)}s` : '';
+    const isSloMet = rerouteState?.service_target_met !== false;
+    if (isSloMet) {
+      text = `Recovery verified${durStr}: 100% packet delivery restored on bypass route meeting primary SLO (≤ 30ms).`;
+    } else {
+      text = `Recovery verified${durStr}: 100% packet delivery restored on secondary tier bypass path (≤ 50ms SLA).`;
+    }
+    icon = '✔';
+    bannerClass = 'status-healthy';
   } else if (incident === 'Unresolved') {
-    text = `Unresolved: All alternate paths severed or exhausted. Traffic dropping permanently on blocked routes.`;
-    dotClass = 'text-copper';
+    const hasActiveRoute = routeIsConnected(rerouteState?.current_route);
+    const isDelivering = hasActiveRoute && Number(state?.reroute?.telemetry?.recent_delivery_rate_pct || 0) > 0;
+    if (hasActiveRoute && isDelivering) {
+      text = `Degraded route — alternative paths exhausted. Packets are delivering on ${(rerouteState.current_route || []).join(' ➔ ')}, but latency/SLO target breached.`;
+      icon = '▲';
+      bannerClass = 'status-warning';
+    } else {
+      text = `No alternative path — recovery is blocked. Restore a failed link or load a fresh demo. No successful recovery is claimed.`;
+      icon = '✖';
+      bannerClass = 'status-failure';
+    }
+  }
+
+  if (!isDemoTopology()) {
+    text = isRunning ? `Traffic running on ${state.name || 'custom topology'}. Select a device or link to inspect it.` : 'Ready to edit this topology.';
+    icon = isRunning ? '●' : '✎';
+    bannerClass = isRunning ? 'status-healthy' : '';
+  }
+  if (!isRunning && (state.flows && state.flows.some(f => f.status === 'ACTIVE'))) {
+    text = 'Paused — start traffic or choose a device to edit. ' + (incident === 'Healthy' ? '' : text);
   }
 
   statusMsg.textContent = text;
+  if (banner) {
+    banner.className = `canvas-status-banner ${bannerClass}`.trim();
+    const icEl = banner.querySelector('.status-ic');
+    if (icEl) icEl.textContent = icon;
+  }
 }
 
 function updateKPIs(rerouteState) {
@@ -397,23 +449,49 @@ function updateKPIs(rerouteState) {
   const clockEl = $('clockDisplay');
   const badgeEl = $('providerBadge');
 
+  if (!isDemoTopology()) rerouteState = {};
   const pdr = rerouteState?.telemetry?.recent_delivery_rate_pct ?? state?.metrics?.pdr ?? (state?.overview?.packet_delivery_ratio) ?? 100.0;
   const sent = Math.round(state?.overview?.packets_sent ?? state?.metrics?.sent ?? rerouteState?.telemetry?.total_observed ?? 0);
   const delivered = Math.round(state?.overview?.packets_delivered ?? state?.metrics?.delivered ?? rerouteState?.telemetry?.total_delivered ?? 0);
 
   // Missing latency or no deliveries must be N/A
   let lat = rerouteState?.telemetry?.recent_avg_latency_ms ?? state?.metrics?.latency ?? state?.overview?.average_latency_ms;
-  if (delivered === 0 || lat == null || isNaN(Number(lat))) {
+  if (delivered === 0 || rerouteState?.telemetry?.recent_delivered_packets === 0 || lat == null || isNaN(Number(lat))) {
     lat = null;
   }
 
-  const recoveryDur = rerouteState?.metrics?.recovery_time_sim_time;
+  const recoveryDur = rerouteState?.incident_state === 'Recovered' ? rerouteState?.metrics?.recovery_time_sim_time : null;
+  const sloEl = $('metricSloTarget');
 
   if (pdrEl) {
     pdrEl.textContent = `${fmt(pdr, 1)}%`;
     pdrEl.className = `kpi-value ${pdr < 85 ? 'text-copper' : 'text-sage'}`;
   }
-  if (latEl) latEl.textContent = lat != null ? `${fmt(lat, 1)} ms` : 'N/A';
+  if (latEl) {
+    latEl.textContent = lat != null ? `${fmt(lat, 1)} ms` : 'N/A';
+    latEl.className = `kpi-value ${lat != null && lat > 30 ? 'text-copper' : 'text-main'}`;
+  }
+  if (sloEl) {
+    if (lat == null) {
+      sloEl.textContent = 'SLO ≤ 30.0 ms';
+      sloEl.style.color = 'var(--text-muted)';
+    } else if (lat > 30.0) {
+      const isRecoveredSecondary = rerouteState?.incident_state === 'Recovered' && rerouteState?.delivery_restored;
+      if (isRecoveredSecondary) {
+        sloEl.textContent = `Secondary SLA Met (${fmt(lat, 1)} ms ≤ 50 ms)`;
+        sloEl.style.color = 'var(--copper)';
+      } else {
+        sloEl.textContent = `Breach (+${(lat - 30.0).toFixed(1)} ms)`;
+        sloEl.style.color = 'var(--failure)';
+      }
+    } else if (lat > 26.0) {
+      sloEl.textContent = 'Warning (Near SLO)';
+      sloEl.style.color = 'var(--warning)';
+    } else {
+      sloEl.textContent = pdr < 100 ? 'Latency within target; packet loss observed' : 'Latency within target (≤ 30 ms)';
+      sloEl.style.color = 'var(--sage)';
+    }
+  }
   if (recEl) recEl.textContent = recoveryDur != null ? `${recoveryDur.toFixed(2)}s` : '—';
   if (delEl) delEl.textContent = `${delivered}`;
   if (ratioEl) ratioEl.textContent = `${sent} sent`;
@@ -425,7 +503,10 @@ function updateKPIs(rerouteState) {
   // Provider badge
   const diag = rerouteState?.diagnosis;
   if (badgeEl) {
-    if (!diag || diag.is_fallback !== false) {
+    if (rerouteState?.incident_state === 'Diagnosing') {
+      badgeEl.className = 'provider-pill provider-diagnosing';
+      badgeEl.textContent = '● Qualcomm AI Diagnosing...';
+    } else if (!diag || diag.is_fallback !== false) {
       badgeEl.className = 'provider-pill provider-fallback';
       badgeEl.textContent = '● Rules fallback Active';
     } else {
@@ -445,6 +526,9 @@ function updateKPIs(rerouteState) {
 function renderTelemetryChart() {
   const path = $('chartPath');
   if (!path || !telemetryHistory.length) return;
+  const waiting = Number(state?.metrics?.sent || 0) === 0;
+  $('chartAnnotation').textContent = waiting ? 'Start traffic to see measured delivery over time' : 'Measured delivery rate • latest 50 observations';
+  if (waiting) { path.setAttribute('d', ''); return; }
   const w = 650;
   const h = 80;
   const points = telemetryHistory.map((pt, idx) => {
@@ -452,7 +536,7 @@ function renderTelemetryChart() {
     const y = h - (Math.max(0, Math.min(100, pt.pdr)) / 100) * (h - 10) - 5;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  path.setAttribute('d', `M ${points.join(' L ')}`);
+  path.setAttribute('d', points.length === 1 ? `M ${points[0]} l 1 0` : `M ${points.join(' L ')}`);
 }
 
 function updateDockRecentEvents(timeline) {
@@ -669,9 +753,9 @@ function renderIncidentsPage() {
       tbody.innerHTML = timeline.map((e, idx) => `
         <tr>
           <td>${fmt(e.sim_time, 2)}s</td>
-          <td>INC-${1000 + idx}</td>
-          <td>${esc(e.component || 'Trunk R2-R4')}</td>
-          <td>${esc(e.failure_type || 'Link Disruption')}</td>
+          <td>Event ${idx + 1}</td>
+          <td>${esc(e.component || '—')}</td>
+          <td>${esc(e.message || '—')}</td>
           <td>${esc(r.diagnosis?.is_fallback === false ? 'Qualcomm AI 100' : 'Rules Fallback')}</td>
           <td><span class="status-badge ${e.state === 'Recovered' ? 'status-up' : 'status-down'}">${esc(e.state)}</span></td>
           <td>${r.metrics?.recovery_time_sim_time != null ? `${r.metrics.recovery_time_sim_time.toFixed(2)}s` : '—'}</td>
@@ -688,6 +772,7 @@ function renderIncidentsPage() {
     statusBadge.className = `status-badge ${r.incident_state === 'Recovered' ? 'status-up' : r.incident_state === 'Healthy' ? 'status-up' : 'status-down'}`;
   }
 
+  $('incDetailVerification').textContent = r.incident_state === 'Recovered' ? '5 distinct successful deliveries verified' : 'Recovery not verified';
   const recTime = r.metrics?.recovery_time_sim_time;
   const onset = r.metrics?.fault_injection_sim_time;
   const wallClock = diag?.wall_clock_ms;
@@ -698,7 +783,7 @@ function renderIncidentsPage() {
   $('incDetailComponent') && ($('incDetailComponent').textContent = diag?.affected_component || (r.failed_components?.join(', ') || 'None'));
   $('incDetailProvider') && ($('incDetailProvider').textContent = diag?.model_name || (diag?.is_fallback === false ? 'Llama-3.1-8B (Qualcomm AI 100)' : 'Deterministic Fallback'));
   $('incDetailAction') && ($('incDetailAction').textContent = diag?.recommended_action || (r.incident_state !== 'Healthy' ? 'Reroute to alternate path' : 'None'));
-  $('incDetailRouteAfter') && ($('incDetailRouteAfter').textContent = r.current_route?.join(' ➔ ') || '—');
+  $('incDetailRouteAfter') && ($('incDetailRouteAfter').textContent = r.incident_state === 'Unresolved' ? 'No alternative path' : r.current_route?.join(' ➔ ') || '—');
   $('incDetailWallClock') && ($('incDetailWallClock').textContent = wallClock != null ? `${fmt(wallClock, 1)} ms` : '—');
 
   const expBox = $('incDetailExplanation');
@@ -724,7 +809,7 @@ async function loadConnectionsPage() {
     $('qcStatusDetail') && ($('qcStatusDetail').textContent = qc.status || 'Ready');
     const qcBadge = $('qcStatusBadge');
     if (qcBadge) {
-      qcBadge.textContent = qc.mode === 'live' ? 'Online' : 'Fallback Ready';
+      qcBadge.textContent = qc.mode === 'live' ? 'Configured · not verified' : 'Fallback available';
       qcBadge.className = `conn-status-badge ${qc.mode === 'live' ? 'status-up' : ''}`;
     }
 
@@ -746,7 +831,201 @@ async function loadConnectionsPage() {
 // Main Render Loop
 // -----------------------------------------------------------------------------
 
+function isDemoTopology() {
+  return ['Client','Server','R1','R2','R3','R4','R5','R6'].every(id => state?.devices?.some(d => d.id === id));
+}
+
+async function enterBuildMode() {
+  await pausePlayback();
+  editorMode = 'build';
+  applyEditorModeLocks();
+}
+
+function renderRecoverySummary() {
+  const r = state.reroute || {};
+  const phase = isDemoTopology() ? (r.incident_state || 'Healthy') : 'Custom network';
+  const unresolved = phase === 'Unresolved';
+  const curScenario = $('scenarioSelect')?.value || 'mild_congestion';
+  const hasActiveRoute = routeIsConnected(r.current_route);
+  const isDelivering = hasActiveRoute && Number(state?.reroute?.telemetry?.recent_delivery_rate_pct || 0) > 0;
+
+  let heading = phase;
+  if (unresolved) {
+    if (hasActiveRoute && isDelivering) {
+      heading = 'Alternative paths exhausted';
+    } else {
+      heading = 'No alternative path';
+    }
+  } else if (phase === 'Recovered') {
+    heading = r.service_target_met ? 'Recovery verified · SLO met' : 'Recovery verified · Delivery restored';
+  } else if (phase === 'Healthy') {
+    heading = 'Ready to demonstrate recovery';
+  }
+
+  $('recoveryHeading').textContent = heading;
+  $('recoverySummary').dataset.outcome = unresolved ? (isDelivering ? 'pending' : 'failed') : phase === 'Recovered' ? 'recovered' : 'pending';
+
+  let explanation = '';
+  if (unresolved) {
+    if (hasActiveRoute && isDelivering) {
+      explanation = 'Traffic is actively delivering on the current path, but alternative paths are exhausted or unable to meet latency targets.';
+    } else {
+      explanation = 'No reachable alternative path exists: redundant links are down or severed. Recovery safely blocked without claiming false resolution.';
+    }
+  } else if (phase === 'Recovered') {
+    if (r.service_target_met) {
+      explanation = `Five consecutive deliveries verified. Primary route restored under baseline service target (≤ ${r.service_target_latency_ms || 30.0} ms).`;
+    } else {
+      explanation = `Five consecutive deliveries verified on secondary bypass tier. 100% packet delivery restored; latency operating within secondary SLA (≤ ${r.recovery_max_latency_ms || 50.0} ms).`;
+    }
+  } else if (phase === 'Custom network') {
+    explanation = 'Build and inspect your network. Load the recovery demo for scripted detect–diagnose–heal scenarios.';
+  } else if (phase === 'Verifying') {
+    explanation = 'Bypass route active. Observing 5 consecutive deliveries to confirm healthy packet delivery.';
+  } else if (phase === 'Rerouting') {
+    explanation = 'Updating forwarding tables to divert traffic around the degraded component.';
+  } else if (phase === 'Diagnosing') {
+    explanation = 'Telemetry anomaly captured. Querying Qualcomm Cloud AI 100 on Cirrascale for root-cause diagnosis.';
+  } else if (phase === 'Detected') {
+    explanation = 'Persistent latency or packet loss threshold breached. Triggering automated diagnostic pipeline.';
+  } else {
+    explanation = 'Start traffic, choose a scenario, then inject it. Outcomes below come directly from the simulation engine.';
+  }
+  $('recoveryExplanation').textContent = explanation;
+
+  // 1. Failed component badge
+  const failedEl = $('recoveryFailedComp');
+  const failedComps = (r.failed_components && r.failed_components.length > 0)
+    ? r.failed_components
+    : (r.diagnosis?.affected_component ? [r.diagnosis.affected_component] : []);
+  if (failedEl) {
+    if (failedComps.length > 0 && phase !== 'Healthy') {
+      failedEl.style.display = 'inline-block';
+      failedEl.textContent = `Failed: ${failedComps.join(', ')}`;
+    } else {
+      failedEl.style.display = 'none';
+    }
+  }
+
+  // 2. Previous route badge
+  const prevRouteEl = $('recoveryRouteBefore');
+  if (prevRouteEl) {
+    if (r.previous_route && r.previous_route.length > 0 && (phase === 'Rerouting' || phase === 'Verifying' || phase === 'Recovered' || unresolved)) {
+      prevRouteEl.style.display = 'inline-block';
+      prevRouteEl.textContent = `Prev: ${r.previous_route.join(' → ')}`;
+    } else {
+      prevRouteEl.style.display = 'none';
+    }
+  }
+
+  // 3. Current / Replacement route badge
+  const routeEl = $('recoveryRoute');
+  const routeList = (isDemoTopology() ? r.current_route : state.flows?.find(f => f.status === 'ACTIVE')?.route) || [];
+  if (routeEl) {
+    if (unresolved && (!routeList || !routeList.length || !isDelivering)) {
+      routeEl.textContent = 'Active route: None';
+    } else {
+      const isBypass = r.previous_route && r.previous_route.length > 0 && r.previous_route.join(',') !== routeList.join(',');
+      routeEl.textContent = (isBypass ? 'Bypass route: ' : 'Active route: ') + routeList.join(' → ');
+    }
+  }
+
+  // 4. Evidence / Diagnosis badge
+  const evidenceEl = $('recoveryEvidence');
+  if (evidenceEl) {
+    if (r.diagnosis) {
+      evidenceEl.className = 'meta-tag meta-evidence';
+      evidenceEl.style.display = 'inline-block';
+      const prov = r.diagnosis.is_fallback ? 'Rule Fallback' : (r.diagnosis.model_name || 'Qualcomm AI');
+      const cause = (r.diagnosis.likely_cause || 'Degradation').replace('_', ' ');
+      const evDetail = (r.diagnosis.evidence && r.diagnosis.evidence.length > 0) ? ` · ${r.diagnosis.evidence[0]}` : '';
+      evidenceEl.textContent = `AI: ${prov} (${cause}${evDetail})`;
+    } else if (phase === 'Healthy') {
+      evidenceEl.className = 'meta-tag';
+      evidenceEl.textContent = 'Telemetry monitoring healthy flow';
+    } else {
+      evidenceEl.className = 'meta-tag';
+      evidenceEl.textContent = 'Diagnosis appears after observed degradation';
+    }
+  }
+
+  // 5. Recovery verification status badge
+  const verifyEl = $('recoveryVerificationStatus');
+  if (verifyEl) {
+    if (phase === 'Recovered') {
+      verifyEl.style.display = 'inline-block';
+      const latStr = r.last_verified_latency_ms != null ? ` (${fmt(r.last_verified_latency_ms, 1)}ms)` : '';
+      if (r.service_target_met) {
+        verifyEl.className = 'meta-tag meta-verify';
+        verifyEl.textContent = `✔ Delivery Restored · SLO Met${latStr}`;
+      } else {
+        verifyEl.className = 'meta-tag meta-verify warning';
+        verifyEl.textContent = `✔ Delivery Restored · Secondary SLA Tier${latStr}`;
+      }
+    } else if (phase === 'Verifying') {
+      verifyEl.style.display = 'inline-block';
+      verifyEl.className = 'meta-tag meta-verify warning';
+      verifyEl.textContent = 'Verifying bypass delivery (5 packets)...';
+    } else {
+      verifyEl.style.display = 'none';
+    }
+  }
+
+  const scenarioPrefix = r.active_scenario ? `Active scenario: ${r.active_scenario.replaceAll('_', ' ')}. ` : 'No scripted scenario active. ';
+  $('scenarioHelp').textContent = !isDemoTopology()
+    ? 'Custom editing mode: add/remove devices and links. Load the recovery demo for scripted detect–diagnose–heal scenarios.'
+    : $('scenarioSelect').value === 'no_alternate_path'
+    ? 'Disconnects both routes into R6. Expected result: Unresolved, with no alternative path.'
+    : $('scenarioSelect').value === 'mild_congestion'
+    ? 'Injects queue delay before packet loss occurs. Evaluates rising latency and attempts rerouting. Check measured latency for any service-target breach.'
+    : 'Inject a fault into the running simulated network, then watch the autonomous recovery response.';
+
+  $('scenarioHelp').textContent = scenarioPrefix + $('scenarioHelp').textContent;
+
+  // Highlight pipeline steps
+  const steps = document.querySelectorAll('.pipe-step');
+  const stageMap = {
+    'Healthy': 0,
+    'Warning': 0,
+    'Detected': 1,
+    'Diagnosing': 2,
+    'Action selected': 2,
+    'Rerouting': 3,
+    'Verifying': 4,
+    'Recovered': 5,
+    'Unresolved': 5
+  };
+  const activeIdx = stageMap[phase] ?? 0;
+  steps.forEach((el, idx) => {
+    el.classList.toggle('active', idx === activeIdx);
+    el.classList.toggle('completed', idx < activeIdx);
+    el.classList.remove('failed');
+    if (unresolved && idx === activeIdx) {
+      el.classList.add('failed');
+      el.textContent = '6. Unresolved';
+    } else if (idx === 5) {
+      el.textContent = '6. Recovered';
+    }
+  });
+}
+
+function refreshEndpoints() {
+  const hosts = (state.devices || []).filter(d => ['host','pc','laptop','server'].includes(d.type));
+  for (const [id, preferred, index] of [['trafficSource','Client',0],['trafficTarget','Server',Math.min(1,hosts.length-1)]]) {
+    const el = $(id); if (!el) continue;
+    const old = el.value || localStorage.getItem(id);
+    el.innerHTML = hosts.map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+    el.value = hosts.some(d => d.id === old) ? old : hosts.some(d => d.id === preferred) ? preferred : hosts[index]?.id || '';
+  }
+  $('projectPill').textContent = (state.name || 'Current topology').replace('ReRoute 6-Router Redundant Mesh', 'Nexus · Six-router recovery lab');
+  $('injectFaultBtn').disabled = !isDemoTopology();
+  $('injectFaultBtn').title = isDemoTopology() ? 'Inject the selected demo fault' : 'Load the six-router demo to use scripted scenarios. Individual device and link faults remain available.';
+}
+
 function render() {
+  refreshEndpoints();
+  renderRecoverySummary();
+  if ($('pageIncidents')?.classList.contains('active-page')) renderIncidentsPage();
   if (!state) return;
   const r = state.reroute || {};
   const isRunning = Boolean(state.running);
@@ -763,13 +1042,13 @@ function render() {
   const pauseBtn = $('mainPauseBtn');
   if (startBtn && pauseBtn) {
     if (isRunning) {
-      startBtn.textContent = '▶ Running';
+      startBtn.textContent = '▶ Resume traffic';
       startBtn.classList.remove('primary-play-btn');
       startBtn.classList.add('ctrl-btn');
       pauseBtn.classList.add('primary-play-btn');
       pauseBtn.classList.remove('ctrl-btn');
     } else {
-      startBtn.textContent = '▶ Start';
+      startBtn.textContent = '▶ Start traffic';
       startBtn.classList.add('primary-play-btn');
       startBtn.classList.remove('ctrl-btn');
       pauseBtn.classList.remove('primary-play-btn');
@@ -791,24 +1070,31 @@ function render() {
 function applyEditorModeLocks() {
   const isRunning = Boolean(state?.running);
   const isBuild = editorMode === 'build';
+  $('btnBuildMode')?.classList.toggle('active', isBuild);
+  $('btnRunMode')?.classList.toggle('active', !isBuild);
+  $('devicesPalette')?.classList.toggle('build-mode-active', isBuild);
+  if ($('mainStartBtn')) $('mainStartBtn').disabled = false;
+  if ($('mainPauseBtn')) $('mainPauseBtn').disabled = !isRunning;
 
-  // Build Palette buttons
+  // Build Palette buttons: disabled when running or in Run mode
+  const lockPalette = false; // Editing controls pause playback through enterBuildMode.
   const paletteBtns = ['paletteAddRouter', 'paletteAddSwitch', 'paletteAddClient', 'paletteAddServer', 'paletteConnectBtn', 'paletteDeleteBtn'];
   paletteBtns.forEach(id => {
     const btn = $(id);
-    if (btn) btn.disabled = !isBuild || isRunning;
+    if (btn) btn.disabled = lockPalette;
   });
 
   const tip = $('paletteTip');
   if (tip) {
-    if (isRunning) tip.textContent = 'Editing locked while running';
-    else if (!isBuild) tip.textContent = 'Switch to Build mode to edit';
+    if (isRunning) tip.textContent = 'Choose a device to pause and add it';
+    else if (!isBuild) tip.textContent = 'Choose a device to add';
     else tip.textContent = 'Build mode active: add or connect';
   }
 
   const modeHint = $('modeHint');
   if (modeHint) {
-    modeHint.style.display = isRunning ? 'inline' : 'none';
+    modeHint.style.display = 'inline';
+    modeHint.textContent = isRunning ? 'Build pauses playback for editing' : isBuild ? 'Add a device, then connect it' : 'Select Build to edit devices';
   }
 
   // If running, cancel active connect/delete tool
@@ -819,24 +1105,31 @@ function applyEditorModeLocks() {
 
 async function play() {
   stop();
-  playTimer = setInterval(async () => {
-    if (!state?.running) {
-      stop();
-      return;
-    }
+  const epoch = playbackEpoch;
+  const tick = async () => {
+    if (epoch !== playbackEpoch || !state?.running) return;
     try {
-      await api('reroute_step');
-    } catch (e) {
-      stop();
-    }
-  }, 250);
+      pendingStep = api(isDemoTopology() ? 'reroute_step' : 'step');
+      await pendingStep;
+      if (epoch === playbackEpoch && state?.running) {
+        playTimer = setTimeout(tick, Math.max(50, 500 / Number($('speedSelect')?.value || 1)));
+      }
+    } catch (e) { stop(); }
+  };
+  await pendingStep.catch(() => {});
+  if (epoch === playbackEpoch) tick();
 }
 
 function stop() {
-  if (playTimer) {
-    clearInterval(playTimer);
-    playTimer = null;
-  }
+  playbackEpoch++;
+  clearTimeout(playTimer);
+  playTimer = null;
+}
+
+async function pausePlayback() {
+  stop();
+  await pendingStep.catch(() => {});
+  await api('running', { value: false });
 }
 
 // -----------------------------------------------------------------------------
@@ -941,6 +1234,17 @@ function bindNode(el) {
 }
 
 function bindControls() {
+  for (const id of ['trafficSource','trafficTarget']) $(id)?.addEventListener('change', () => localStorage.setItem(id, $(id).value));
+  $('loadRecoveryDemo')?.addEventListener('click', async () => {
+    if (!confirm('Load the recovery demo? This replaces the current topology. Cancel and use Save first if you want to keep it.')) return;
+    try {
+      await pausePlayback(); selected = null; telemetryHistory = []; seenPacketIds.clear();
+      await api('reroute_init'); await api('running', {value:false});
+      editorMode = 'build'; fitCanvasView(); render();
+      toast('Recovery demo ready. Start traffic, then inject your scenario.');
+    } catch (e) { toast(e.message, true); }
+  });
+
   // 1. Sidebar Navigation
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -948,7 +1252,7 @@ function bindControls() {
       btn.classList.add('active');
 
       const pageName = btn.dataset.page;
-      document.querySelectorAll('.dhaara-page').forEach(p => {
+      document.querySelectorAll('.nexus-page').forEach(p => {
         p.style.display = 'none';
         p.classList.remove('active-page');
       });
@@ -973,10 +1277,7 @@ function bindControls() {
 
   // 2. Build vs Run Mode Switcher
   $('btnBuildMode')?.addEventListener('click', async () => {
-    if (state?.running) {
-      toast('Cannot switch to Build mode while simulation is running. Pause first.', true);
-      return;
-    }
+    try { await pausePlayback(); } catch (e) { return; }
     editorMode = 'build';
     $('btnBuildMode').classList.add('active');
     $('btnRunMode').classList.remove('active');
@@ -998,12 +1299,21 @@ function bindControls() {
   // 3. Play / Pause / Step / Reset
   $('mainStartBtn')?.addEventListener('click', async () => {
     try {
-      const hasActiveFlow = state?.flows && state.flows.some(f => f.status === 'ACTIVE');
-      if (!hasActiveFlow) {
+      await pausePlayback();
+      const src = $('trafficSource')?.value || 'Client';
+      const dst = $('trafficTarget')?.value || 'Server';
+      if (!src || src === dst) throw new Error('Choose two different traffic endpoints.');
+      editorMode = 'run';
+
+      const active = (state?.flows || []).filter(f => f.status === 'ACTIVE');
+      const diffEndpoints = active.some(f => f.source !== src || f.destination !== dst);
+      if (diffEndpoints) {
+        throw new Error('Pause and reset the current traffic before switching endpoints. Existing flows were preserved.');
+      } else if (active.length === 0) {
         await api('start_traffic', {
-          source: 'Client',
-          destination: 'Server',
-          packet_count: 60,
+          source: src,
+          destination: dst,
+          packet_count: 80,
           pps: 5.0,
           traffic_type: 'Video',
           packet_size: 1200
@@ -1011,7 +1321,7 @@ function bindControls() {
       }
       await api('running', { value: true });
       play();
-      toast('Traffic streaming Client ➔ Server');
+      toast(`Traffic streaming ${src} → ${dst}`);
     } catch (e) {
       toast(e.message, true);
     }
@@ -1019,8 +1329,7 @@ function bindControls() {
 
   $('mainPauseBtn')?.addEventListener('click', async () => {
     try {
-      stop();
-      await api('running', { value: false });
+      await pausePlayback();
       toast('Simulation paused');
     } catch (e) {
       toast(e.message, true);
@@ -1029,8 +1338,9 @@ function bindControls() {
 
   $('mainStepBtn')?.addEventListener('click', async () => {
     try {
-      stop();
-      await api('reroute_step');
+      await pausePlayback();
+      await api(isDemoTopology() ? 'reroute_step' : 'step');
+      await api('running', { value: false });
       toast('Executed single simulation step');
     } catch (e) {
       toast(e.message, true);
@@ -1039,7 +1349,7 @@ function bindControls() {
 
   $('mainResetBtn')?.addEventListener('click', async () => {
     try {
-      stop();
+      await pausePlayback();
       telemetryHistory = [];
       await api('reroute_reset');
       toast('Network reset to initial baseline');
@@ -1054,17 +1364,23 @@ function bindControls() {
     toast(`Simulation speed set to ${spd}x`);
   });
 
+  // Explicit Load Recovery Demo Button
+
+
   // Demo Preset Selector
   $('demoPresetSelect')?.addEventListener('change', async (e) => {
     const preset = e.target.value;
+    if (!preset) return;
     try {
-      stop();
+      await pausePlayback();
+      telemetryHistory = [];
       if (preset === 'reroute_six_router') {
         await api('reroute_init');
       } else {
         await api('load_preset', { preset });
       }
-      toast(`Loaded preset: ${preset}`);
+      toast(`Loaded preset topology: ${preset}`);
+      e.target.value = '';
     } catch (err) {
       toast(`Failed to load preset: ${err.message}`, true);
     }
@@ -1078,7 +1394,7 @@ function bindControls() {
       const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'dhaara-network-topology.json';
+      a.download = 'nexus-network-topology.json';
       a.click();
       URL.revokeObjectURL(a.href);
       toast('Topology document exported');
@@ -1097,7 +1413,9 @@ function bindControls() {
     try {
       const text = await file.text();
       const doc = JSON.parse(text);
+      await pausePlayback(); selected = null; telemetryHistory = []; seenPacketIds.clear();
       await api('import', { document: doc });
+      await api('running', {value:false}); editorMode = 'build'; render();
       toast('Topology imported successfully');
     } catch (err) {
       toast(`Failed to import topology: ${err.message}`, true);
@@ -1110,8 +1428,11 @@ function bindControls() {
     const saved = localStorage.getItem('reroute_selected_scenario');
     if (saved && Array.from(scenarioSelect.options).some(o => o.value === saved)) {
       scenarioSelect.value = saved;
+    } else {
+      scenarioSelect.value = 'mild_congestion';
     }
     scenarioSelect.addEventListener('change', () => {
+      renderRecoverySummary();
       localStorage.setItem('reroute_selected_scenario', scenarioSelect.value);
     });
   }
@@ -1123,9 +1444,25 @@ function bindControls() {
     if (btn) btn.disabled = true;
 
     try {
-      const scn = scenarioSelect ? scenarioSelect.value : 'sudden_link_failure';
+      if (!isDemoTopology()) throw new Error('Load the recovery demo explicitly before injecting scripted faults. Your custom topology was preserved.');
+      if (!state.running) {
+        // Automatically start traffic so fault injection works immediately
+        const src = $('trafficSource')?.value || 'Client';
+        const dst = $('trafficTarget')?.value || 'Server';
+        await api('start_traffic', {
+          source: src,
+          destination: dst,
+          packet_count: 80,
+          pps: 5.0,
+          traffic_type: 'Video',
+          packet_size: 1200
+        });
+        await api('running', { value: true });
+        play();
+      }
+      const scn = scenarioSelect ? scenarioSelect.value : 'mild_congestion';
       await api('reroute_inject_scenario', { scenario: scn });
-      toast(`Fault injected: ${scn}`);
+      toast(`Fault scenario engaged: ${scn}`);
     } catch (e) {
       toast(e.message, true);
     } finally {
@@ -1149,23 +1486,28 @@ function bindControls() {
 
   // 6. Devices Palette Handlers
   const addDeviceHandler = (type, prefix) => async () => {
-    if (editorMode === 'run' || state?.running) {
-      toast('Cannot add devices in Run mode or while running. Switch to Build mode.', true);
-      return;
-    }
     try {
-      const count = (state?.devices || []).filter(d => d.type === type).length + 1;
+      await enterBuildMode();
+      let count = 1;
+      while ((state?.devices || []).some(d => d.id === `${prefix}${count}`)) count++;
       const desiredName = `${prefix}${count}`;
       const prevIds = new Set((state.devices || []).map(d => d.id));
+      let position = {x: 120, y: 100};
+      outer: for (let y = 100; y <= 580; y += 120) {
+        for (let x = 120; x <= 1080; x += 120) {
+          if (!(state.devices || []).some(d => Math.hypot(d.x-x, d.y-y) < 110)) { position = {x,y}; break outer; }
+        }
+      }
       const res = await api('add_device', {
         type,
         name: desiredName,
-        x: 450 + Math.floor(Math.random() * 120),
-        y: 250 + Math.floor(Math.random() * 100)
+        x: position.x,
+        y: position.y
       });
       const created = (res?.state?.devices || state?.devices || []).find(d => !prevIds.has(d.id));
       const actualName = created?.name || created?.id || desiredName;
-      toast(`Added ${type} ${actualName}`);
+      if (created) { selected = {kind: 'device', id: created.id}; renderInspector(); }
+      toast(`Added ${type} ${actualName}. Use Connect to link it to the network.`);
     } catch (e) {
       toast(e.message, true);
     }
@@ -1176,20 +1518,12 @@ function bindControls() {
   $('paletteAddClient')?.addEventListener('click', addDeviceHandler('pc', 'PC'));
   $('paletteAddServer')?.addEventListener('click', addDeviceHandler('server', 'SRV'));
 
-  $('paletteConnectBtn')?.addEventListener('click', () => {
-    if (editorMode === 'run' || state?.running) {
-      toast('Connect tool locked in Run mode. Switch to Build mode.', true);
-      return;
-    }
-    setMode(mode === 'connect' ? 'select' : 'connect');
+  $('paletteConnectBtn')?.addEventListener('click', async () => {
+    try { await enterBuildMode(); setMode(mode === 'connect' ? 'select' : 'connect'); } catch (e) { toast(e.message, true); }
   });
 
-  $('paletteDeleteBtn')?.addEventListener('click', () => {
-    if (editorMode === 'run' || state?.running) {
-      toast('Delete tool locked in Run mode. Switch to Build mode.', true);
-      return;
-    }
-    setMode(mode === 'delete' ? 'select' : 'delete');
+  $('paletteDeleteBtn')?.addEventListener('click', async () => {
+    try { await enterBuildMode(); setMode(mode === 'delete' ? 'select' : 'delete'); } catch (e) { toast(e.message, true); }
   });
 
   // 7. Canvas Floating Controls (Zoom / Pan / Fit)
@@ -1208,6 +1542,7 @@ function bindControls() {
   });
 
   $('btnToolSelect')?.addEventListener('click', () => {
+    setMode('select');
     $('btnToolSelect').classList.add('active');
     $('btnToolPan').classList.remove('active');
     isPanning = false;
@@ -1236,7 +1571,7 @@ function bindControls() {
   });
 
   window.addEventListener('pointermove', (e) => {
-    if (isPanning && ($('btnToolPan')?.classList.contains('active') || e.buttons === 4 || e.shiftKey)) {
+    if (isPanning && e.buttons && ($('btnToolPan')?.classList.contains('active') || e.buttons === 4 || e.shiftKey)) {
       pan.x = e.clientX - panStart.x;
       pan.y = e.clientY - panStart.y;
       updateCanvasTransform();
@@ -1280,10 +1615,10 @@ function bindControls() {
         $('dockViewTelemetry').style.display = 'grid';
         $('dockViewTelemetry').classList.add('active-dock');
       } else if (target === 'packets') {
-        $('dockViewPackets').style.display = 'block';
+        $('dockViewPackets').style.display = 'flex';
         $('dockViewPackets').classList.add('active-dock');
       } else if (target === 'events') {
-        $('dockViewEvents').style.display = 'block';
+        $('dockViewEvents').style.display = 'flex';
         $('dockViewEvents').classList.add('active-dock');
       }
     });
@@ -1292,7 +1627,7 @@ function bindControls() {
   // 10. Incidents Page Export Report
   $('btnExportIncidentReport')?.addEventListener('click', () => {
     const reportData = {
-      title: 'Dhaara Network Incident History',
+      title: 'Nexus Network Incident History',
       timestamp: new Date().toISOString(),
       reroute_metrics: state?.reroute?.metrics,
       diagnosis: state?.reroute?.diagnosis,
@@ -1301,7 +1636,7 @@ function bindControls() {
     const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `dhaara-incident-report-${Date.now()}.json`;
+    a.download = `nexus-incident-report-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
     toast('Incident report exported');
@@ -1318,6 +1653,11 @@ function bindControls() {
     try {
       const resp = await api('reroute_run_comparison', { scenario: scn, offered_packets: 30, seed });
       const report = resp.state.report_dict;
+      lastComparison = report;
+      $('btnDownloadCompareResults').disabled = false;
+      $('comparisonContext').textContent = `${report.scenario} · seed ${report.seed} · ${report.offered_packets} packets in each run`;
+      $('cmpOnOutcome').textContent = report.auto_heal_on.final_status === 'Unresolved' ? 'No alternative path — Unresolved' : report.auto_heal_on.final_status;
+      $('cmpOnOutcome').className = report.auto_heal_on.final_status === 'Unresolved' ? 'text-failure' : 'text-sage';
 
       const formatLat = (val) => {
         if (val === null || val === undefined || val === 'N/A') return 'N/A';
@@ -1327,12 +1667,12 @@ function bindControls() {
       const formatDur = (val) => {
         if (val === null || val === undefined || val === 'N/A') return 'N/A';
         const num = Number(val);
-        return isNaN(num) ? 'N/A' : `${num.toFixed(2)}s`;
+        return isNaN(num) ? 'Not recovered within observation window' : `${num.toFixed(2)}s`;
       };
 
       $('cmpOffPdr') && ($('cmpOffPdr').textContent = `${Number(report.auto_heal_off.post_action.delivery_rate_pct || 0).toFixed(1)}%`);
       $('cmpOffLat') && ($('cmpOffLat').textContent = formatLat(report.auto_heal_off.post_action.avg_latency_ms));
-      $('cmpOffOutcome') && ($('cmpOffOutcome').textContent = report.auto_heal_off.outcome_label || 'Traffic dropped permanently');
+      $('cmpOffOutcome') && ($('cmpOffOutcome').textContent = report.auto_heal_off.final_status || 'N/A');
 
       $('cmpOnPdr') && ($('cmpOnPdr').textContent = `${Number(report.auto_heal_on.post_action.delivery_rate_pct || 0).toFixed(1)}%`);
       $('cmpOnLat') && ($('cmpOnLat').textContent = formatLat(report.auto_heal_on.post_action.avg_latency_ms));
@@ -1351,14 +1691,13 @@ function bindControls() {
   });
 
   $('btnDownloadCompareResults')?.addEventListener('click', async () => {
-    const scn = $('compareScenarioSelect')?.value || 'sudden_link_failure';
-    const seed = Number($('compareSeedInput')?.value) || 42;
     try {
-      const resp = await api('reroute_run_comparison', { scenario: scn, offered_packets: 30, seed });
-      const blob = new Blob([JSON.stringify(resp.state.report_dict, null, 2)], { type: 'application/json' });
+      if (!lastComparison) throw new Error('Run a comparison before downloading results.');
+      const scn = lastComparison.scenario, seed = lastComparison.seed;
+      const blob = new Blob([JSON.stringify(lastComparison, null, 2)], {type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `dhaara-compare-results-${scn}-seed${seed}.json`;
+      a.download = `nexus-compare-results-${scn}-seed${seed}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
       toast('Benchmark results downloaded');

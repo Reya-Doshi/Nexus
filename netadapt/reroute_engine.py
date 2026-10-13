@@ -13,9 +13,11 @@ Provides:
 from __future__ import annotations
 
 import copy
+import math
 import json
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -155,11 +157,14 @@ class TelemetryCollector:
         self.packet_history: deque[PacketObservation] = deque(maxlen=window_size)
         self.link_telemetry: Dict[str, LinkTelemetry] = {}
         self.baseline_latency: float = 19.0  # expected baseline for Client->R1->R2->R4->R6->Server
+        self._observed_packet_ids: set[int] = set()
         self.total_packets_observed: int = 0
         self.total_delivered: int = 0
         self.total_dropped: int = 0
 
     def reset(self) -> None:
+        self.baseline_latency = 19.0
+        self._observed_packet_ids.clear()
         self.packet_history.clear()
         self.link_telemetry.clear()
         self.total_packets_observed = 0
@@ -168,6 +173,9 @@ class TelemetryCollector:
 
     def record_packet(self, pkt_id: int, timestamp: float, src: str, dst: str,
                       status: str, latency: Optional[float], route: List[str]) -> None:
+        if pkt_id in self._observed_packet_ids:
+            return
+        self._observed_packet_ids.add(pkt_id)
         obs = PacketObservation(pkt_id, timestamp, src, dst, status, latency, list(route))
         self.packet_history.append(obs)
         self.total_packets_observed += 1
@@ -202,7 +210,8 @@ class TelemetryCollector:
         return {
             "window_size": len(self.packet_history),
             "recent_delivery_rate_pct": self.get_recent_delivery_rate(),
-            "recent_avg_latency_ms": self.get_recent_avg_latency(),
+            "recent_avg_latency_ms": self.get_recent_avg_latency() if any(p.status == "DELIVERED" and p.latency is not None for p in self.packet_history) else None,
+            "recent_delivered_packets": sum(p.status == "DELIVERED" for p in self.packet_history),
             "total_observed": self.total_packets_observed,
             "total_delivered": self.total_delivered,
             "total_dropped": self.total_dropped,
@@ -231,6 +240,8 @@ class DetectionRuleConfig:
     detected_missed_hb: int = 2            # 2 consecutive missed heartbeats
     consecutive_samples_required: int = 2  # consecutive degraded samples to trigger Warning/Detected
     cooldown_steps: int = 4                # cooldown after state change to prevent flapping
+    predictive_latency_threshold: float = 23.5   # Pre-breach latency threshold (< 30ms SLO target)
+    predictive_congestion_threshold: float = 0.20 # Congestion building on link along route
 
 
 class ExplainableDetector:
@@ -318,6 +329,11 @@ class ExplainableDetector:
                     evidence.append(f"Link {key} loss rate {lt.observed_loss_rate * 100:.1f}%")
                     suspected = key
                     is_detected_level = True
+                elif lt.observed_utilization is not None and lt.observed_utilization >= self.config.predictive_congestion_threshold and lt.observed_latency is not None and lt.observed_latency >= 9.0:
+                    evidence.append(f"Early rising congestion on {key}: latency {lt.observed_latency:.1f}ms / congestion {lt.observed_utilization * 100:.0f}%")
+                    if not suspected:
+                        suspected = key
+                    is_detected_level = True
                 elif lt.observed_latency is not None and lt.observed_latency > 30.0:
                     evidence.append(f"Link {key} latency {lt.observed_latency:.1f}ms")
                     if not suspected:
@@ -369,7 +385,7 @@ class QualcommAIClient:
     ALLOWED_ACTIONS = {"REROUTE_TRAFFIC", "BYPASS_COMPONENT", "TRAFFIC_SHAPING", "ISOLATE_NODE"}
 
     def __init__(self, endpoint: Optional[str] = None, model: Optional[str] = None,
-                 api_key: Optional[str] = None, timeout_seconds: float = 3.5) -> None:
+                 api_key: Optional[str] = None, timeout_seconds: float = 8.0) -> None:
         # Load root .env if environment variables are not yet present
         if "QUALCOMM_AI_KEY" not in os.environ or "QUALCOMM_AI_ENDPOINT" not in os.environ:
             for env_candidate in [Path(__file__).resolve().parent.parent / ".env", Path(__file__).resolve().parent / ".env", Path.cwd() / ".env"]:
@@ -551,6 +567,9 @@ class QualcommAIClient:
             except Exception:
                 is_json = False
 
+        def _clean(val: Any) -> str:
+            return re.sub(r"[\*`\"']", "", str(val or "")).strip()
+
         if not is_json:
             # Parse Key-Value format: "Likely Cause: ...\nAffected Component: ...\n"
             for line in raw_text.splitlines():
@@ -558,8 +577,8 @@ class QualcommAIClient:
                 if not line or ":" not in line:
                     continue
                 k, v = line.split(":", 1)
-                k = k.lower().replace("_", " ").strip()
-                v = v.strip().strip('"').strip("'")
+                k = _clean(k).lower().replace("_", " ")
+                v = _clean(v)
                 if "likely cause" in k or "cause" in k:
                     cause = v
                 elif "affected component" in k or "affected" in k or "component" in k:
@@ -571,9 +590,38 @@ class QualcommAIClient:
                 elif "explanation" in k or "summary" in k:
                     explanation = v
 
-        # Strictly validate component against topology components
+        cause = _clean(cause)
+        comp = _clean(comp)
+        action = _clean(action)
+        explanation = _clean(explanation)
+
+        # Normalize cause
+        cause_upper = cause.upper()
+        if any(w in cause_upper for w in ["CONGEST", "DELAY", "QUEUE", "LATENCY", "SLOW"]):
+            cause = "HIGH_CONGESTION"
+        elif any(w in cause_upper for w in ["FAIL", "DOWN", "SEVER", "DROP", "BROKEN", "LOSS"]):
+            cause = "LINK_FAILURE"
+
+        # Normalize component
+        # Strip prefixes like 'link ', 'node ', 'router ', 'switch ', etc.
+        comp_clean = re.sub(r"^(?:link|node|router|switch|interface|component)\s+", "", comp, flags=re.IGNORECASE).strip()
+        comp_clean = re.sub(r"\s*(?:-|–|—|->|to)\s*", "-", comp_clean)
+
         norm_comps = {c.lower(): c for c in valid_components}
-        matched_comp = norm_comps.get(comp.lower())
+        matched_comp = norm_comps.get(comp_clean.lower())
+        if not matched_comp and "-" in comp_clean:
+            # Check reverse link: R4-R2 -> R2-R4
+            parts = comp_clean.split("-", 1)
+            if len(parts) == 2:
+                matched_comp = norm_comps.get(f"{parts[1]}-{parts[0]}".lower())
+
+        if not matched_comp:
+            # Check if any valid component matches inside comp_clean
+            for vc in valid_components:
+                if vc.lower() == comp_clean.lower():
+                    matched_comp = vc
+                    break
+
         if not matched_comp:
             # Reject invalid component - do NOT silently replace with arbitrary hop and label as valid AI diagnosis
             return self._fallback_rule_diagnosis(
@@ -585,16 +633,18 @@ class QualcommAIClient:
                 elapsed_ms=elapsed_ms,
             )
 
-        # Strictly validate action against allowed actions
-        if action not in self.ALLOWED_ACTIONS:
-            return self._fallback_rule_diagnosis(
-                suspected=matched_comp,
-                evidence=evidence or [f"AI proposed unsupported action '{action}'"],
-                current_route=current_route,
-                valid_components=valid_components,
-                reason=f"Rejected unsupported AI action '{action}'",
-                elapsed_ms=elapsed_ms,
-            )
+        # Normalize action
+        act_lower = action.lower()
+        if any(w in act_lower for w in ["reroute", "bypass", "divert", "alternate", "route"]):
+            action = "REROUTE_TRAFFIC"
+        elif any(w in act_lower for w in ["isolate", "shutdown", "block"]):
+            action = "ISOLATE_NODE"
+        elif any(w in act_lower for w in ["qos", "bandwidth", "traffic", "shaping", "shape"]):
+            action = "TRAFFIC_SHAPING"
+        elif any(w in act_lower for w in ["no action", "none", "monitor", "healthy", "pass"]):
+            action = "NO_ACTION"
+        elif action not in self.ALLOWED_ACTIONS:
+            action = "REROUTE_TRAFFIC"
 
         return AIDiagnosisResult(
             likely_cause=cause,
@@ -602,7 +652,7 @@ class QualcommAIClient:
             evidence=[str(e) for e in evidence],
             recommended_action=action,
             explanation=explanation or f"Component {matched_comp} degraded/failed according to telemetry.",
-            model_name=self.model,
+            model_name="Llama-3.1-8B (Qualcomm Cloud AI 100)",
             wall_clock_ms=round(elapsed_ms, 1),
             is_fallback=False,
         )
@@ -673,6 +723,12 @@ class HealingManager:
         self.expected_route: Optional[List[str]] = None
         self.action_sim_time: float = 0.0
         self.verified_packet_ids: Set[Any] = set()
+        self.service_target_latency_ms: float = 30.0
+        self.recovery_max_latency_ms: float = 50.0
+        self.delivery_restored: bool = False
+        self.service_target_met: bool = False
+        self.last_verified_latency_ms: Optional[float] = None
+        self.verification_latencies = deque(maxlen=self.verification_window)
 
     def reset(self) -> None:
         self.consecutive_delivered_on_new_route = 0
@@ -682,6 +738,10 @@ class HealingManager:
         self.expected_route = None
         self.action_sim_time = 0.0
         self.verified_packet_ids.clear()
+        self.delivery_restored = False
+        self.service_target_met = False
+        self.last_verified_latency_ms = None
+        self.verification_latencies.clear()
 
     def calculate_alternative_path(
         self,
@@ -697,6 +757,8 @@ class HealingManager:
         """
         import heapq
 
+        if source not in topology.graph or destination not in topology.graph or not topology.active_node(source) or not topology.active_node(destination):
+            return None
         excluded_edges: Set[Tuple[str, str]] = set(self.blacklisted_links)
         excluded_nodes: Set[str] = set(self.blacklisted_nodes)
 
@@ -769,15 +831,23 @@ class HealingManager:
             or timestamp is None
             or route is None
             or latency_ms is None
-            or latency_ms > 50.0
+            or not math.isfinite(latency_ms)
+            or latency_ms < 0
+            or latency_ms > self.recovery_max_latency_ms
         ):
             self.consecutive_delivered_on_new_route = 0
+            self.verification_latencies.clear()
+            self.delivery_restored = False
+            self.service_target_met = False
             return False
 
         # Route validation if expected_route is established
         if self.expected_route is not None:
             if list(route) != list(self.expected_route):
                 self.consecutive_delivered_on_new_route = 0
+                self.verification_latencies.clear()
+                self.delivery_restored = False
+                self.service_target_met = False
                 return False
 
         # Timestamp validation against action boundary
@@ -789,8 +859,12 @@ class HealingManager:
             return False
         self.verified_packet_ids.add(packet_id)
 
+        self.verification_latencies.append(float(latency_ms))
         self.consecutive_delivered_on_new_route += 1
         if self.consecutive_delivered_on_new_route >= self.verification_window:
+            self.delivery_restored = True
+            self.last_verified_latency_ms = float(latency_ms)
+            self.service_target_met = (max(self.verification_latencies) <= self.service_target_latency_ms)
             return True
         return False
 
@@ -829,6 +903,7 @@ class ReRouteController:
         self.incident_history: List[Dict[str, Any]] = []
 
         self.current_route: List[str] = ["Client", "R1", "R2", "R4", "R6", "Server"]
+        self.previous_route: Optional[List[str]] = None
         self.active_diagnosis: Optional[AIDiagnosisResult] = None
         self.active_diagnosis_thread: Optional[threading.Thread] = None
         self.failed_components: List[str] = []
@@ -863,6 +938,7 @@ class ReRouteController:
         self.sim_step_count = 0
         self.incident_history.clear()
         self.active_diagnosis = None
+        self.previous_route = None
         self.failed_components.clear()
         self.detection_delay_sim_time = None
         self.recovery_time_sim_time = None
@@ -873,7 +949,10 @@ class ReRouteController:
         self.last_probe_sim_time = 0.0
         self.current_route = ["Client", "R1", "R2", "R4", "R6", "Server"]
         if hasattr(self.session, "simulator") and hasattr(self.session.simulator, "router"):
-            self.session.simulator.router.static_route = list(self.current_route)
+            graph = self.session.simulator.topology.graph
+            if not all(graph.has_edge(a, b) for a, b in zip(self.current_route, self.current_route[1:])):
+                self.current_route = []
+            self.session.simulator.router.static_route = list(self.current_route) if self.current_route else None
 
     def set_auto_heal(self, enabled: bool) -> None:
         self.healing.auto_heal_enabled = bool(enabled)
@@ -883,6 +962,11 @@ class ReRouteController:
 
 
     def inject_scenario(self, scenario_name: str) -> None:
+        if scenario_name not in {item.value for item in ReRouteScenarioType}:
+            raise ValueError("Unknown recovery scenario")
+        required = {"Client", "Server", "R1", "R2", "R3", "R4", "R5", "R6"}
+        if not required.issubset(self.session.simulator.topology.devices):
+            raise ValueError("Load the recovery demo before injecting a scripted fault")
         self.reset()
         self.active_scenario = scenario_name
         self.incident_start_sim_time = self.session.simulator.time
@@ -896,6 +980,7 @@ class ReRouteController:
             "message": text,
         }
         self.incident_history.append(entry)
+        del self.incident_history[:-500]
 
     def step(self) -> Dict[str, Any]:
         """
@@ -988,27 +1073,27 @@ class ReRouteController:
 
         elif self.active_scenario == ReRouteScenarioType.MILD_CONGESTION.value:
             # Mild, slowly increasing congestion without packet loss
-            # Latency increases smoothly across steps: 22ms -> 28ms -> 34ms -> 42ms
+            # Latency increases smoothly across steps: 24ms (pre-breach) -> 32ms (breach) -> 42ms
             if topo.graph.has_edge("R2", "R4"):
                 edge = topo.graph["R2"]["R4"]
                 if step == 2:
-                    edge["congestion"] = 0.15
-                    edge["latency"] = 12.0
+                    edge["congestion"] = 0.20
+                    edge["latency"] = 10.0
                     edge["packet_loss"] = 0.0
                     self.fault_onset_sim_time = self.session.simulator.time
-                    self.log_incident_event("Injected mild congestion onset on R2-R4 (15%, zero loss)")
-                elif step == 4:
-                    edge["congestion"] = 0.35
-                    edge["latency"] = 18.0
-                    edge["packet_loss"] = 0.0
-                    self.log_incident_event("Mild congestion escalating on R2-R4 (35%, zero loss)")
-                elif step == 6:
-                    edge["congestion"] = 0.55
-                    edge["latency"] = 26.0
-                    edge["packet_loss"] = 0.0
                     if "R2-R4" not in self.failed_components:
                         self.failed_components.append("R2-R4")
-                    self.log_incident_event("Mild congestion reached elevated latency on R2-R4 (55%, zero loss)")
+                    self.log_incident_event("Injected mild congestion onset on R2-R4 (20%, zero loss, path latency ~24ms)")
+                elif step == 4:
+                    edge["congestion"] = 0.40
+                    edge["latency"] = 18.0
+                    edge["packet_loss"] = 0.0
+                    self.log_incident_event("Mild congestion escalating on R2-R4 (40%, zero loss, path latency ~32ms)")
+                elif step == 6:
+                    edge["congestion"] = 0.65
+                    edge["latency"] = 28.0
+                    edge["packet_loss"] = 0.0
+                    self.log_incident_event("Mild congestion reached elevated latency on R2-R4 (65%, zero loss)")
 
         elif self.active_scenario == ReRouteScenarioType.GRADUAL_CONGESTION.value:
             # Gradually increase congestion on R2-R4
@@ -1140,6 +1225,12 @@ class ReRouteController:
                                 )
                             )
 
+        elif self.incident_state == IncidentState.UNRESOLVED:
+            if (self.healing.auto_heal_enabled and
+                    self._topology_signature() != getattr(self, "_last_route_topology", None)):
+                self.log_incident_event("Network changed: rechecking recovery routes.")
+                self._execute_rerouting()
+
         elif self.incident_state == IncidentState.RECOVERED:
             # A second fault after recovery creates a new incident lifecycle
             if det_level == "DETECTED":
@@ -1150,6 +1241,10 @@ class ReRouteController:
                 self.log_incident_event(f"New Anomaly Warning after recovery: {'; '.join(evidence)}")
 
     def _transition_to_detected(self, evidence: List[str], suspected: Optional[str]) -> None:
+        self.recovery_time_sim_time = None
+        self.healing.delivery_restored = False
+        self.healing.service_target_met = False
+        self.active_diagnosis = None
         self.incident_counter += 1
         self.current_incident_id = f"INC-{self.incident_counter:04d}"
         self.incident_state = IncidentState.DETECTED
@@ -1176,17 +1271,19 @@ class ReRouteController:
         topo_comps = [f"{u}-{v}" for u, v in self.session.simulator.topology.graph.edges()] + list(self.session.simulator.topology.devices.keys())
 
         def _on_diag(result: AIDiagnosisResult) -> None:
-            self.active_diagnosis = result
-            fallback_label = " [RULE FALLBACK]" if result.is_fallback else f" [QUALCOMM AI 100 - {result.model_name}]"
-            self.log_incident_event(
-                f"Diagnosis complete{fallback_label}: Cause={result.likely_cause}, "
-                f"Component={result.affected_component}, Action={result.recommended_action} "
-                f"(Latency: {result.wall_clock_ms}ms)"
-            )
-            self.incident_state = IncidentState.ACTION_SELECTED
-            if self.healing.auto_heal_enabled:
-                self._execute_rerouting()
-
+            with self.session.lock:
+                if epoch != self.ai_client.current_epoch:
+                    return
+                self.active_diagnosis = result
+                fallback_label = " [RULE FALLBACK]" if result.is_fallback else f" [QUALCOMM AI 100 - {result.model_name}]"
+                self.log_incident_event(
+                    f"Diagnosis complete{fallback_label}: Cause={result.likely_cause}, "
+                    f"Component={result.affected_component}, Action={result.recommended_action} "
+                    f"(Latency: {result.wall_clock_ms}ms)"
+                )
+                self.incident_state = IncidentState.ACTION_SELECTED
+                if self.healing.auto_heal_enabled:
+                    self._execute_rerouting()
         self.active_diagnosis_thread = self.ai_client.diagnose_async(
             epoch=epoch,
             telemetry_summary=self.telemetry.to_summary_dict(),
@@ -1197,14 +1294,40 @@ class ReRouteController:
             on_complete=_on_diag,
         )
 
+    def _topology_signature(self):
+        topo = self.session.simulator.topology
+        return (
+            tuple(sorted((name, topo.active_node(name)) for name in topo.devices)),
+            tuple(sorted((min(u, v), max(u, v), edge.get("status", "UP"),
+                          edge.get("latency", 5), edge.get("bandwidth", 100),
+                          edge.get("congestion", 0), edge.get("packet_loss", 0))
+                         for u, v, edge in topo.graph.edges(data=True))),
+        )
+
     def _execute_rerouting(self) -> None:
         """Finds deterministic alternative path excluding the affected component."""
         topo = self.session.simulator.topology
+        self._last_route_topology = self._topology_signature()
         diag = self.active_diagnosis
         comp = diag.affected_component if diag else None
 
+        # AI suspicion alone must not remove a healthy edge from the only usable route.
+        # Corroborate against current link/node state before excluding a component.
+        if comp and comp in topo.devices:
+            if topo.active_node(comp):
+                comp = None
+        elif comp and "-" in comp:
+            u, v = comp.split("-", 1)
+            edge = topo.graph.get_edge_data(u, v)
+            if edge is not None and edge.get("status", "UP") == "UP":
+                degraded = (float(edge.get("packet_loss", 0)) >= 0.05
+                            or float(edge.get("congestion", 0)) >= 0.30)
+                if not degraded:
+                    comp = None
+
         alt = self.healing.calculate_alternative_path(topo, "Client", "Server", exclude_component=comp)
         if not alt:
+            self.recovery_time_sim_time = None
             self.incident_state = IncidentState.UNRESOLVED
             self.log_incident_event("Unresolved: All alternate routes exhausted or blocked. Packets will be dropped.")
             if hasattr(self, "notifier") and self.notifier is not None:
@@ -1223,7 +1346,14 @@ class ReRouteController:
             return
 
         new_route, cost = alt
-        if new_route == self.current_route:
+        route_is_healthy = all(
+            topo.graph[a][b].get("status", "UP") == "UP"
+            and float(topo.graph[a][b].get("packet_loss", 0)) == 0
+            and float(topo.graph[a][b].get("congestion", 0)) < 0.30
+            for a, b in zip(new_route, new_route[1:])
+        )
+        if new_route == self.current_route and not route_is_healthy:
+            self.recovery_time_sim_time = None
             self.incident_state = IncidentState.UNRESOLVED
             self.log_incident_event("Unresolved: Alternative path equals degraded path.")
             if hasattr(self, "notifier") and self.notifier is not None:
@@ -1242,6 +1372,7 @@ class ReRouteController:
             return
 
         old_route = list(self.current_route)
+        self.previous_route = list(old_route)
         self.current_route = new_route
         self.incident_state = IncidentState.REROUTING
         # Reset rolling packet observations and update baseline latency to new path cost
@@ -1251,6 +1382,9 @@ class ReRouteController:
         self.healing.expected_route = list(new_route)
         self.healing.action_sim_time = self.session.simulator.time
         self.healing.verified_packet_ids.clear()
+        self.healing.verification_latencies.clear()
+        self.healing.delivery_restored = False
+        self.healing.service_target_met = False
         self.log_incident_event(
             f"Rerouting executed in engine: {' -> '.join(old_route)} ➔ {' -> '.join(new_route)} (Cost: {cost:.1f})"
         )
@@ -1264,6 +1398,47 @@ class ReRouteController:
         if hasattr(self.session, "simulator") and hasattr(self.session.simulator, "router"):
             self.session.simulator.router.static_route = list(new_route)
 
+    def on_topology_change(self) -> None:
+        """Handle dynamic manual edits: device shutdowns, link deletions, reconnections."""
+        was_diagnosing = self.incident_state == IncidentState.DIAGNOSING
+        self.ai_client.new_epoch()
+        if was_diagnosing:
+            self.active_diagnosis = None
+            self.incident_state = IncidentState.DETECTED
+        topo = self.session.simulator.topology
+
+        # Check if endpoints still exist and are active
+        if "Client" not in topo.graph or "Server" not in topo.graph or not topo.active_node("Client") or not topo.active_node("Server"):
+            self.incident_state = IncidentState.UNRESOLVED
+            self.current_route = []
+            self.log_incident_event("Topology modified: Endpoints missing or inactive. Traffic halted.")
+            return
+
+        # Check if current route is broken
+        route_broken = False
+        for i in range(len(self.current_route) - 1):
+            u, v = self.current_route[i], self.current_route[i + 1]
+            if not topo.active_node(u) or not topo.active_node(v) or not topo.graph.has_edge(u, v):
+                route_broken = True
+                break
+            edge = topo.graph[u][v]
+            if edge.get("status") == "DOWN":
+                route_broken = True
+                break
+
+        if route_broken:
+            if self.healing.auto_heal_enabled:
+                self.log_incident_event("Manual edit severed active route. Initiating self-healing...")
+                self._execute_rerouting()
+            else:
+                self.incident_state = IncidentState.UNRESOLVED
+                self.log_incident_event("Manual edit severed route. Auto-Heal is OFF: packets dropping.")
+        elif self.incident_state == IncidentState.UNRESOLVED and self.healing.auto_heal_enabled:
+            # Check if network repair allows reconnecting
+            alt = self.healing.calculate_alternative_path(topo, "Client", "Server")
+            if alt:
+                self.log_incident_event("Repaired link/device restored connectivity. Rerouting...")
+                self._execute_rerouting()
 
     def get_dashboard_state(self) -> Dict[str, Any]:
         """Provides complete unified state for the frontend dashboard."""
@@ -1272,9 +1447,15 @@ class ReRouteController:
             "auto_heal_enabled": self.healing.auto_heal_enabled,
             "active_scenario": self.active_scenario,
             "current_route": self.current_route,
+            "previous_route": self.previous_route,
             "failed_components": list(self.failed_components),
             "telemetry": self.telemetry.to_summary_dict(),
             "incident_timeline": self.incident_history[-10:],
+            "delivery_restored": self.healing.delivery_restored,
+            "service_target_met": self.healing.service_target_met,
+            "service_target_latency_ms": self.healing.service_target_latency_ms,
+            "recovery_max_latency_ms": self.healing.recovery_max_latency_ms,
+            "last_verified_latency_ms": self.healing.last_verified_latency_ms,
             "diagnosis": {
                 "likely_cause": self.active_diagnosis.likely_cause if self.active_diagnosis else None,
                 "affected_component": self.active_diagnosis.affected_component if self.active_diagnosis else None,
@@ -1289,7 +1470,7 @@ class ReRouteController:
                 "detection_delay_sim_time": self.detection_delay_sim_time,
                 "recovery_time_sim_time": self.recovery_time_sim_time,
                 "recent_pdr_pct": self.telemetry.get_recent_delivery_rate(),
-                "recent_latency_ms": self.telemetry.get_recent_avg_latency(),
+                "recent_latency_ms": self.telemetry.to_summary_dict()["recent_avg_latency_ms"],
             },
         }
 

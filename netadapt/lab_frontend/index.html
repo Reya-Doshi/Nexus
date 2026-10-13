@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dhaara — Network Simulator</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <title>Nexus — Network Simulator</title>
+  <link rel="stylesheet" href="/styles.css?v=release-3" />
 </head>
 <body>
-  <div id="app" class="dhaara-app">
+  <div id="app" class="nexus-app">
     <!-- Left Sidebar Navigation -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="/assets/dhaara_logo.jpg" alt="Dhaara by Team Setu" class="brand-logo" />
+        <img src="/assets/nexus_logo.png" alt="Nexus by Team Setu" class="brand-logo" />
         <div class="brand-text">
-          <div class="brand-title">Dhaara</div>
+          <div class="brand-title">Nexus</div>
           <div class="brand-subtitle">by Team Setu</div>
         </div>
       </div>
@@ -64,7 +64,7 @@
     <!-- Main Application Viewport -->
     <div class="main-viewport">
       <!-- 1. SIMULATOR PAGE -->
-      <section id="pageSimulator" class="dhaara-page active-page">
+      <section id="pageSimulator" class="nexus-page active-page">
         <!-- Top Toolbar -->
         <header class="page-topbar">
           <div class="topbar-left">
@@ -73,6 +73,7 @@
               <span class="project-pill" id="projectPill">Project: Six-router recovery demo ✎</span>
             </div>
 
+            <div class="traffic-endpoints"><label>From <select id="trafficSource" aria-label="Traffic source"></select></label><label>To <select id="trafficTarget" aria-label="Traffic destination"></select></label></div>
             <!-- Mode Switcher: Build / Run -->
             <div class="mode-switcher">
               <button id="btnBuildMode" class="mode-btn" title="Build mode: add, connect, drag, and delete devices">
@@ -92,7 +93,7 @@
             <div class="sim-actions">
               <button id="mainStartBtn" class="primary-play-btn" title="Start traffic flow">▶ Start</button>
               <button id="mainPauseBtn" class="ctrl-btn" title="Pause simulation">Ⅱ Pause</button>
-              <button id="mainStepBtn" class="ctrl-btn" title="Execute single simulation step">⏭ Step</button>
+              <button id="mainStepBtn" class="ctrl-btn" title="Execute single simulation step">⏭ One step</button>
               <button id="mainResetBtn" class="ctrl-btn" title="Reset simulation and incident state">↻ Reset</button>
 
               <div class="select-wrap">
@@ -109,11 +110,12 @@
               <input type="file" id="fileInput" accept=".json" style="display:none;" />
 
               <div class="select-wrap">
-                <select id="demoPresetSelect" title="Preset topology selector">
-                  <option value="reroute_six_router" selected>Demo: Six-router recovery</option>
-                  <option value="self_healing">Demo: Self-healing lab</option>
-                  <option value="two_router">Demo: Two router</option>
-                  <option value="redundant">Demo: Redundant network</option>
+                <select id="demoPresetSelect" title="Preset topology selector (replaces current topology)">
+                  <option value="" disabled selected>More presets...</option>
+                  <option value="reroute_six_router">Canonical: Six-router recovery</option>
+                  <option value="self_healing">Lab: Self-healing network</option>
+                  <option value="two_router">Lab: Two router basic</option>
+                  <option value="redundant">Lab: Redundant ring</option>
                 </select>
               </div>
             </div>
@@ -134,8 +136,9 @@
               <strong id="metricPdr" class="kpi-value text-sage">100.0%</strong>
             </div>
             <div class="kpi-item">
-              <span class="kpi-label">Latency</span>
+              <span class="kpi-label">Latency / SLO</span>
               <strong id="metricLatency" class="kpi-value">N/A</strong>
+              <span class="kpi-sub" id="metricSloTarget">SLO ≤ 30.0 ms</span>
             </div>
             <div class="kpi-item">
               <span class="kpi-label">Recovery</span>
@@ -152,8 +155,8 @@
             <div class="scenario-inline">
               <label for="scenarioSelect">Scenario:</label>
               <select id="scenarioSelect" class="scenario-select">
+                <option value="mild_congestion" selected>Mild congestion (rising latency)</option>
                 <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
-                <option value="mild_congestion">Mild Increasing Congestion (0% Loss)</option>
                 <option value="gradual_congestion">Severe Congestion (R2-R4)</option>
                 <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
               </select>
@@ -171,6 +174,40 @@
         </div>
 
         <!-- Center Workspace: Devices Palette (Left) + Canvas + Right Inspector -->
+        <!-- Incident Lifecycle & Guidance Strip -->
+        <section class="recovery-summary" id="recoverySummary" aria-live="polite">
+          <div class="recovery-summary-main">
+            <div class="recovery-pipeline-steps" id="pipelineSteps">
+              <span class="pipe-step" data-step="Healthy">1. Monitoring</span>
+              <span class="pipe-arrow">➔</span>
+              <span class="pipe-step" data-step="Detected">2. Detected</span>
+              <span class="pipe-arrow">➔</span>
+              <span class="pipe-step" data-step="Diagnosing">3. Diagnosing</span>
+              <span class="pipe-arrow">➔</span>
+              <span class="pipe-step" data-step="Rerouting">4. Rerouting</span>
+              <span class="pipe-arrow">➔</span>
+              <span class="pipe-step" data-step="Verifying">5. Verifying</span>
+              <span class="pipe-arrow">➔</span>
+              <span class="pipe-step" data-step="Recovered">6. Recovered</span>
+            </div>
+            <div class="recovery-status-bar">
+              <h2 id="recoveryHeading" class="recovery-heading-compact">Ready to demonstrate recovery</h2>
+              <span class="summary-sep">•</span>
+              <p id="recoveryExplanation" class="text-muted"></p>
+              <div class="recovery-meta-row" id="recoveryMetaRow">
+                <span id="recoveryFailedComp" class="meta-tag meta-failed" style="display:none;"></span>
+                <span id="recoveryRouteBefore" class="meta-tag meta-prev-route" style="display:none;"></span>
+                <span id="recoveryRoute" class="meta-tag meta-route"></span>
+                <span id="recoveryEvidence" class="meta-tag"></span>
+                <span id="recoveryVerificationStatus" class="meta-tag meta-verify" style="display:none;"></span>
+              </div>
+            </div>
+          </div>
+          <div class="recovery-summary-actions">
+            <button id="loadRecoveryDemo" class="primary-play-btn" title="Load canonical six-router recovery network">↺ Reset to Recovery Demo</button>
+            <p id="scenarioHelp" class="scenario-help-text"></p>
+          </div>
+        </section>
         <div class="workspace-body">
           <!-- Build Palette (Left in Build mode) -->
           <div class="devices-palette" id="devicesPalette">
@@ -218,7 +255,7 @@
             </div>
 
             <!-- SVG Topology Canvas -->
-            <svg id="networkCanvas" viewBox="0 0 1100 620" role="application" aria-label="Dhaara Network Topology">
+            <svg id="networkCanvas" viewBox="0 0 1100 620" role="application" aria-label="Nexus Network Topology">
               <defs>
                 <pattern id="subtleGrid" width="36" height="36" patternUnits="userSpaceOnUse">
                   <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#161b22" stroke-width="1" />
@@ -285,6 +322,7 @@
           </aside>
         </div>
 
+
         <!-- Bottom Dock: Telemetry Charts, Packet Log, Events -->
         <footer class="bottom-dock">
           <div class="dock-tabs">
@@ -323,7 +361,7 @@
             <!-- Packet Log View -->
             <div class="dock-view" id="dockViewPackets" style="display:none;">
               <div class="table-scroll">
-                <table class="dhaara-table">
+                <table class="nexus-table">
                   <thead>
                     <tr><th>Packet ID</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Class</th><th>Status</th><th>Latency</th><th>Route</th></tr>
                   </thead>
@@ -337,7 +375,7 @@
             <!-- Events View -->
             <div class="dock-view" id="dockViewEvents" style="display:none;">
               <div class="table-scroll">
-                <table class="dhaara-table">
+                <table class="nexus-table">
                   <thead>
                     <tr><th>Time</th><th>State</th><th>Component</th><th>Message</th></tr>
                   </thead>
@@ -352,7 +390,7 @@
       </section>
 
       <!-- 2. INCIDENTS PAGE -->
-      <section id="pageIncidents" class="dhaara-page" style="display:none;">
+      <section id="pageIncidents" class="nexus-page" style="display:none;">
         <header class="page-topbar">
           <div class="topbar-left">
             <h1 class="page-title">Incident history</h1>
@@ -366,17 +404,17 @@
         <div class="page-container">
           <div class="incidents-table-card">
             <div class="card-head">
-              <h3>Recorded Network Incidents</h3>
+              <h3>Incident event log</h3>
               <span class="text-muted" id="incidentsTotalBadge">0 incidents recorded</span>
             </div>
             <div class="table-scroll">
-              <table class="dhaara-table">
+              <table class="nexus-table">
                 <thead>
                   <tr>
                     <th>Time</th>
-                    <th>Incident ID</th>
+                    <th>Event</th>
                     <th>Target / Device</th>
-                    <th>Failure Type</th>
+                    <th>Observation</th>
                     <th>Provider</th>
                     <th>Status</th>
                     <th>Recovery Duration</th>
@@ -419,11 +457,11 @@
       </section>
 
       <!-- 3. COMPARE PAGE -->
-      <section id="pageCompare" class="dhaara-page" style="display:none;">
+      <section id="pageCompare" class="nexus-page" style="display:none;">
         <header class="page-topbar">
           <div class="topbar-left">
             <h1 class="page-title">Compare runs</h1>
-            <span class="project-pill">A/B Benchmark: Baseline (Auto-Heal OFF) vs Vanguard Self-Healing (Auto-Heal ON)</span>
+            <span class="project-pill">A/B Benchmark: Baseline (Auto-Heal OFF) vs Nexus Self-Healing (Auto-Heal ON)</span>
           </div>
           <div class="topbar-right">
             <div class="scenario-inline">
@@ -447,15 +485,15 @@
               <div class="compare-card-title">Auto-heal OFF (Baseline)</div>
               <div class="compare-metric-row">
                 <span>Post-fault delivery:</span>
-                <strong id="cmpOffPdr" class="text-copper">0.0%</strong>
+                <strong id="cmpOffPdr" class="text-copper">—</strong>
               </div>
               <div class="compare-metric-row">
                 <span>Post-fault latency:</span>
-                <strong id="cmpOffLat">N/A</strong>
+                <strong id="cmpOffLat">—</strong>
               </div>
               <div class="compare-metric-row">
                 <span>Outcome:</span>
-                <span id="cmpOffOutcome">Traffic dropped permanently</span>
+                <span id="cmpOffOutcome">—</span>
               </div>
             </div>
 
@@ -463,39 +501,39 @@
               <div class="compare-card-title">Auto-heal ON (Self-Healing)</div>
               <div class="compare-metric-row">
                 <span>Post-fault delivery:</span>
-                <strong id="cmpOnPdr" class="text-sage">94.1%</strong>
+                <strong id="cmpOnPdr" class="text-sage">—</strong>
               </div>
               <div class="compare-metric-row">
                 <span>Post-fault latency:</span>
-                <strong id="cmpOnLat">25.0 ms</strong>
+                <strong id="cmpOnLat">—</strong>
               </div>
               <div class="compare-metric-row">
                 <span>Recovery time:</span>
-                <strong id="cmpOnRecovery">2.32s</strong>
+                <strong id="cmpOnRecovery">—</strong>
               </div>
             </div>
           </div>
 
-          <div class="compare-summary-card">
+          <div class="compare-summary-card"><p id="comparisonContext">Run a comparison to measure both outcomes. No results yet.</p><p>Auto-heal ON outcome: <strong id="cmpOnOutcome">—</strong></p>
             <div class="summary-metric">
               <span>Delivery Improvement:</span>
-              <strong id="cmpPdrDelta" class="text-sage">+94.1%</strong>
+              <strong id="cmpPdrDelta" class="text-sage">—</strong>
             </div>
             <div class="summary-metric">
               <span>Diagnosis Provider:</span>
-              <strong id="cmpProvider">Deterministic Fallback</strong>
+              <strong id="cmpProvider">—</strong>
             </div>
             <div class="summary-metric">
               <span>Offered Workload:</span>
               <strong>30 Packets (Seed 42)</strong>
             </div>
-            <button id="btnDownloadCompareResults" class="ctrl-btn" title="Download benchmark JSON results">📥 Download results</button>
+            <button id="btnDownloadCompareResults" disabled class="ctrl-btn" title="Download benchmark JSON results">📥 Download results</button>
           </div>
         </div>
       </section>
 
       <!-- 4. CONNECTIONS PAGE -->
-      <section id="pageConnections" class="dhaara-page" style="display:none;">
+      <section id="pageConnections" class="nexus-page" style="display:none;">
         <header class="page-topbar">
           <div class="topbar-left">
             <h1 class="page-title">Connections</h1>
@@ -550,7 +588,7 @@
 
   <div id="toast" class="toast"></div>
 
-  <!-- Shared Dhaara Application Logic -->
-  <script src="/app.js"></script>
+  <!-- Shared Nexus Application Logic -->
+  <script src="/app.js?v=release-3"></script>
 </body>
 </html>

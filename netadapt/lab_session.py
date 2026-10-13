@@ -240,6 +240,10 @@ class LabSession:
         self._counter = max(
             [self._counter, len(self.simulator.topology.devices) + 1]
         )
+        controller = getattr(self, "reroute_controller", None)
+        if controller is not None:
+            controller.reset()
+
 
     def export_document(self) -> Dict[str, Any]:
         return deepcopy(self.document)
@@ -397,6 +401,8 @@ class LabSession:
                     flow.route_status = "FAILED"
                     flow.current_route = []
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     def duplicate_device(self, name: str) -> Dict[str, Any]:
@@ -418,6 +424,8 @@ class LabSession:
             self._record()
             topology.add_link(source, target, latency=latency, bandwidth=bandwidth)
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     def delete_link(self, source: str, target: str) -> Dict[str, Any]:
@@ -434,6 +442,8 @@ class LabSession:
                     except ValueError:
                         flow.current_route, flow.route_status, flow.status = [], "FAILED", "FAILED"
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     def configure_link(self, source: str, target: str, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -458,6 +468,8 @@ class LabSession:
                 if key in values:
                     edge[key] = values[key]
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     def configure_interface(self, name: str, interface_id: str, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -489,6 +501,8 @@ class LabSession:
             self._record()
             self.simulator.fail_node(name)
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     def restart_device(self, name: str) -> Dict[str, Any]:
@@ -496,6 +510,8 @@ class LabSession:
             self._record()
             self.simulator.recover_node(name)
             self._update_document()
+            if hasattr(self, "reroute_controller") and self.reroute_controller is not None:
+                self.reroute_controller.on_topology_change()
             return self.state()
 
     # ------------------------------------------------------------------

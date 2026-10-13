@@ -754,3 +754,154 @@ def test_scenario_mild_congestion_latency_objective_verification():
 
 
 
+
+
+def test_reset_restores_detection_baseline_after_prior_reroute():
+    telemetry = TelemetryCollector()
+    telemetry.baseline_latency = 37.0
+    telemetry.reset()
+    assert telemetry.baseline_latency == 19.0
+
+
+def test_telemetry_counts_each_packet_only_once_and_reset_allows_new_run_ids():
+    telemetry = TelemetryCollector()
+    for _ in range(4):
+        telemetry.record_packet(1, 0.2, "Client", "Server", "DELIVERED", 19.0, ["Client", "Server"])
+    assert telemetry.total_packets_observed == 1
+    assert telemetry.total_delivered == 1
+    telemetry.reset()
+    telemetry.record_packet(1, 0.2, "Client", "Server", "DROPPED", None, [])
+    assert telemetry.total_packets_observed == 1
+    assert telemetry.total_dropped == 1
+
+
+def test_manual_deleted_link_does_not_blacklist_healthy_ai_suspect():
+    from types import SimpleNamespace
+    session = LabSession()
+    session.load_reroute_demo()
+    ctrl = session.reroute_controller
+    topo = session.simulator.topology
+    for u, v in [("R1", "R3"), ("R2", "R5"), ("R4", "R6")]:
+        topo.graph.remove_edge(u, v)
+    ctrl.current_route = ["Client", "R1", "R2", "R5", "R6", "Server"]
+    ctrl.active_diagnosis = SimpleNamespace(affected_component="R1-R2")
+    ctrl._execute_rerouting()
+    assert ctrl.incident_state == IncidentState.REROUTING
+    assert ctrl.current_route[:3] == ["Client", "R1", "R2"]
+    assert ctrl.current_route[-1] == "Server"
+    assert all(topo.graph.has_edge(a,b) for a,b in zip(ctrl.current_route, ctrl.current_route[1:]))
+
+
+def test_new_incident_clears_previous_recovery_duration():
+    session = LabSession()
+    ctrl = session.reroute_controller
+    ctrl.recovery_time_sim_time = 4.836
+    ctrl._transition_to_detected(["new failure"], "R2-R4")
+    assert ctrl.recovery_time_sim_time is None
+
+
+def test_no_recent_deliveries_reports_unknown_latency():
+    telemetry = TelemetryCollector()
+    telemetry.record_packet(1, 1.0, "Client", "Server", "DROPPED", None, [])
+    assert telemetry.to_summary_dict()["recent_avg_latency_ms"] is None
+    assert telemetry.to_summary_dict()["recent_delivered_packets"] == 0
+
+
+def test_unresolved_retries_after_link_restored_without_reset():
+    session = LabSession()
+    session.load_reroute_demo()
+    ctrl = session.reroute_controller
+    topo = session.simulator.topology
+    topo.fail_link("R4", "R6")
+    topo.fail_link("R5", "R6")
+    ctrl._execute_rerouting()
+    assert ctrl.incident_state == IncidentState.UNRESOLVED
+    count = len(ctrl.incident_history)
+    ctrl._update_incident_lifecycle(None)
+    assert len(ctrl.incident_history) == count
+    topo.graph["R5"]["R6"]["status"] = "UP"
+    ctrl._update_incident_lifecycle(None)
+    assert ctrl.incident_state == IncidentState.REROUTING
+    assert ctrl.current_route[-2:] == ["R6", "Server"]
+
+
+def test_restored_original_route_requires_verification():
+    session = LabSession()
+    session.load_reroute_demo()
+    ctrl = session.reroute_controller
+    ctrl._execute_rerouting()
+    assert ctrl.incident_state == IncidentState.REROUTING
+    assert ctrl.healing.expected_route == ctrl.current_route
+    assert ctrl.recovery_time_sim_time is None
+
+
+def test_unresolved_auto_heal_off_does_not_retry():
+    session = LabSession()
+    session.load_reroute_demo()
+    ctrl = session.reroute_controller
+    ctrl.incident_state = IncidentState.UNRESOLVED
+    ctrl.healing.auto_heal_enabled = False
+    ctrl._update_incident_lifecycle(None)
+    assert ctrl.incident_state == IncidentState.UNRESOLVED
+
+
+def test_slo_verification_checks_whole_window():
+    h = HealingManager()
+    for i, latency in enumerate([45, 45, 45, 45, 20]):
+        h.record_verification_packet("DELIVERED", latency, i, i, ["Client", "Server"])
+    assert h.delivery_restored
+    assert not h.service_target_met
+
+
+def test_topology_edit_restarts_cancelled_diagnosis():
+    session = LabSession()
+    session.load_reroute_demo()
+    ctrl = session.reroute_controller
+    ctrl.incident_state = IncidentState.DIAGNOSING
+    ctrl.active_diagnosis = None
+    ctrl.ai_client.is_busy = True
+    ctrl.on_topology_change()
+    assert ctrl.incident_state == IncidentState.DETECTED
+    assert not ctrl.ai_client.is_busy
+
+
+@pytest.mark.parametrize("latency", [float("nan"), float("inf"), -1.0])
+def test_invalid_latency_never_verifies(latency):
+    h = HealingManager(verification_window=1)
+    assert not h.record_verification_packet("DELIVERED", latency, 1, 1, ["A", "B"])
+    assert not h.delivery_restored
+
+
+def test_unknown_scenario_does_not_reset_incident():
+    s = LabSession()
+    s.load_reroute_demo()
+    c = s.reroute_controller
+    c.incident_state = IncidentState.UNRESOLVED
+    with pytest.raises(ValueError):
+        c.inject_scenario("typo")
+    assert c.incident_state == IncidentState.UNRESOLVED
+
+
+def test_custom_network_rejects_scripted_demo_fault():
+    s = LabSession()
+    s.new_network()
+    with pytest.raises(ValueError, match="recovery demo"):
+        s.reroute_controller.inject_scenario("sudden_link_failure")
+
+
+def test_incident_history_is_bounded():
+    c = LabSession().reroute_controller
+    for i in range(600):
+        c.log_incident_event(str(i))
+    assert len(c.incident_history) == 500
+    assert c.incident_history[-1]["message"] == "599"
+
+
+def test_loading_new_network_clears_previous_incident_and_static_route():
+    s = LabSession()
+    s.load_reroute_demo()
+    s.reroute_controller.incident_state = IncidentState.UNRESOLVED
+    s.new_network()
+    assert s.reroute_controller.incident_state == IncidentState.HEALTHY
+    assert s.reroute_controller.current_route == []
+    assert s.simulator.router.static_route is None
