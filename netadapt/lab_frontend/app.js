@@ -667,7 +667,7 @@ function updateDockTables(rerouteState) {
           <td>${esc(p.source)}</td>
           <td>${esc(p.destination)}</td>
           <td>${esc(p.protocol || 'TCP')}</td>
-          <td>${esc(p.traffic_class || 'Video')}</td>
+          <td><span class="slo-target-pill" title="Traffic Class: High-bandwidth Video Stream">${esc(p.traffic_class || 'Video (HD)')}</span></td>
           <td><span class="status-badge ${p.status === 'DELIVERED' ? 'status-up' : 'status-down'}">${esc(p.status)}</span></td>
           <td>${p.latency != null ? `${fmt(p.latency, 1)} ms` : '—'}</td>
           <td>${(p.route || []).join(' ➔ ') || '—'}</td>
@@ -1141,14 +1141,21 @@ function renderRecoverySummary() {
   };
   const activeIdx = stageMap[phase] ?? 0;
   steps.forEach((el, idx) => {
-    el.classList.toggle('active', idx === activeIdx);
-    el.classList.toggle('completed', idx < activeIdx);
-    el.classList.remove('failed');
-    if (unresolved && idx === activeIdx) {
+    el.classList.remove('active', 'completed', 'failed', 'recovered');
+    if (phase === 'Recovered') {
+      // In Recovered state, all steps 1-5 are completed, and step 6 is highlighted as successfully recovered
+      if (idx < 5) el.classList.add('completed');
+      else if (idx === 5) {
+        el.classList.add('active', 'recovered');
+        el.textContent = '6. Recovered ✔';
+      }
+    } else if (unresolved && idx === activeIdx) {
       el.classList.add('failed');
       el.textContent = '6. Unresolved';
-    } else if (idx === 5) {
-      el.textContent = '6. Recovered';
+    } else {
+      if (idx === activeIdx) el.classList.add('active');
+      else if (idx < activeIdx) el.classList.add('completed');
+      if (idx === 5) el.textContent = '6. Recovered';
     }
   });
 }
@@ -1216,24 +1223,8 @@ function applyEditorModeLocks() {
   const isBuild = editorMode === 'build';
   $('btnBuildMode')?.classList.toggle('active', isBuild);
   $('btnRunMode')?.classList.toggle('active', !isBuild);
-  $('devicesPalette')?.classList.toggle('build-mode-active', isBuild);
   if ($('mainStartBtn')) $('mainStartBtn').disabled = false;
   if ($('mainPauseBtn')) $('mainPauseBtn').disabled = !isRunning;
-
-  // Build Palette buttons: disabled when running or in Run mode
-  const lockPalette = false; // Editing controls pause playback through enterBuildMode.
-  const paletteBtns = ['paletteAddRouter', 'paletteAddSwitch', 'paletteAddClient', 'paletteAddServer', 'paletteConnectBtn', 'paletteDeleteBtn'];
-  paletteBtns.forEach(id => {
-    const btn = $(id);
-    if (btn) btn.disabled = lockPalette;
-  });
-
-  const tip = $('paletteTip');
-  if (tip) {
-    if (isRunning) tip.textContent = 'Choose a device to pause and add it';
-    else if (!isBuild) tip.textContent = 'Choose a device to add';
-    else tip.textContent = 'Build mode active: add or connect';
-  }
 
   const modeHint = $('modeHint');
   if (modeHint) {
@@ -1405,29 +1396,28 @@ function setTheme(t) {
 function bindControls() {
   initTheme();
 
-  // Sidebar Tools
-  $('toolAddDeviceBtn')?.addEventListener('click', async () => {
-    const pal = $('devicesPalette');
-    if (pal) {
-      const isHidden = pal.style.display === 'none' || !pal.style.display;
-      pal.style.display = isHidden ? 'flex' : 'none';
-      if (isHidden) {
-        await enterBuildMode();
-        toast('Device palette opened. Click a device type to place it.');
+  // Notification Bell Handler
+  const notifBtn = $('btnNotifications');
+  const notifDropdown = $('notificationsDropdown');
+  if (notifBtn && notifDropdown) {
+    notifBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isHidden = notifDropdown.style.display === 'none' || !notifDropdown.style.display;
+      notifDropdown.style.display = isHidden ? 'flex' : 'none';
+      const badge = $('notifBadge');
+      if (badge && isHidden) badge.style.display = 'none';
+    });
+    document.addEventListener('click', (e) => {
+      if (!notifDropdown.contains(e.target) && e.target !== notifBtn) {
+        notifDropdown.style.display = 'none';
       }
-    }
-  });
+    });
+  }
 
-  $('toolLoadPresetBtn')?.addEventListener('click', () => {
-    $('loadRecoveryDemo')?.click();
-  });
-
-  $('toolResetBtn')?.addEventListener('click', () => {
-    $('mainResetBtn')?.click();
-  });
-
-  $('toolSaveScenarioBtn')?.addEventListener('click', () => {
-    $('btnSaveDoc')?.click();
+  $('btnClearNotifs')?.addEventListener('click', () => {
+    const list = $('notifList');
+    if (list) list.innerHTML = '<div style="font-size:11px; color:var(--text-muted); padding:6px 0;">No active alerts.</div>';
+    toast('Notifications cleared');
   });
 
   $('btnClearRecentEvents')?.addEventListener('click', () => {

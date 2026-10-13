@@ -48,26 +48,7 @@
         </button>
       </nav>
 
-      <!-- Sidebar Tools Section -->
-      <div class="sidebar-section-title">Tools</div>
-      <div class="sidebar-tools">
-        <button class="sidebar-tool-btn" id="toolAddDeviceBtn" title="Add new device to topology">
-          <span class="tool-ic">+</span>
-          <span>Add Device</span>
-        </button>
-        <button class="sidebar-tool-btn" id="toolLoadPresetBtn" title="Load recovery demo preset">
-          <span class="tool-ic">📂</span>
-          <span>Load Preset</span>
-        </button>
-        <button class="sidebar-tool-btn" id="toolResetBtn" title="Reset network simulation">
-          <span class="tool-ic">↻</span>
-          <span>Reset</span>
-        </button>
-        <button class="sidebar-tool-btn" id="toolSaveScenarioBtn" title="Save current network scenario">
-          <span class="tool-ic">💾</span>
-          <span>Save Scenario</span>
-        </button>
-      </div>
+      </nav>
 
       <div class="sidebar-footer">
         <div class="sandbox-badge">
@@ -153,9 +134,34 @@
                 <span class="status-dot"></span>
                 <span id="simStatusPillText">Simulation Ready</span>
               </span>
-              <button class="header-icon-btn" id="btnNotifications" title="Notifications">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="h-icon"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>
-              </button>
+              <div class="notifications-wrapper" style="position:relative;">
+                <button class="header-icon-btn" id="btnNotifications" title="Operations Alerts & Notifications">
+                  <svg viewBox="0 0 20 20" fill="currentColor" class="h-icon"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>
+                  <span class="notification-badge" id="notifBadge">2</span>
+                </button>
+                <div class="notifications-dropdown" id="notificationsDropdown" style="display:none;">
+                  <div class="notif-dropdown-head">
+                    <strong>Operations Alert Feed</strong>
+                    <button id="btnClearNotifs" class="clear-events-btn">Clear</button>
+                  </div>
+                  <div class="notif-list" id="notifList">
+                    <div class="notif-item">
+                      <span class="notif-dot green"></span>
+                      <div>
+                        <div class="notif-title">Self-Healing Pipeline Active</div>
+                        <div class="notif-desc">Qualcomm Cloud AI 100 on Cirrascale ready for sub-150ms root cause diagnosis.</div>
+                      </div>
+                    </div>
+                    <div class="notif-item">
+                      <span class="notif-dot amber"></span>
+                      <div>
+                        <div class="notif-title">Automated Closed-Loop Guard</div>
+                        <div class="notif-desc">Dijkstra bypass routes are strictly validated against physical NetworkX graph.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <button class="header-icon-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle Light / Dark Mode">
                 <span id="themeToggleIcon">☀️</span>
               </button>
@@ -297,41 +303,8 @@
           </div>
         </section>
 
-        <!-- Center Workspace: Palette + Canvas + Right Inspector -->
+        <!-- Center Workspace: Canvas + Right Inspector -->
         <div class="workspace-body">
-          <!-- Build Palette (Toggled in Build mode) -->
-          <div class="devices-palette" id="devicesPalette" style="display:none;">
-            <div class="palette-header">DEVICES</div>
-            <button class="palette-btn" id="paletteAddRouter" data-type="router" title="Add Router">
-              <div class="palette-icon">◉</div>
-              <span>Router</span>
-            </button>
-            <button class="palette-btn" id="paletteAddSwitch" data-type="switch" title="Add Switch">
-              <div class="palette-icon">▥</div>
-              <span>Switch</span>
-            </button>
-            <button class="palette-btn" id="paletteAddClient" data-type="pc" title="Add Client PC">
-              <div class="palette-icon">💻</div>
-              <span>Client</span>
-            </button>
-            <button class="palette-btn" id="paletteAddServer" data-type="server" title="Add Server">
-              <div class="palette-icon">▦</div>
-              <span>Server</span>
-            </button>
-
-            <div class="palette-divider"></div>
-
-            <button class="palette-tool-btn" id="paletteConnectBtn" title="Connect two devices">
-              <svg viewBox="0 0 20 20" fill="currentColor" class="palette-svg"><path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/></svg>
-              <span>Connect</span>
-            </button>
-            <button class="palette-tool-btn danger" id="paletteDeleteBtn" title="Click device or link to delete">
-              <svg viewBox="0 0 20 20" fill="currentColor" class="palette-svg"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-              <span>Delete</span>
-            </button>
-            <div class="palette-tip" id="paletteTip">Switch to Build to place devices</div>
-          </div>
-
           <!-- Topology Canvas Area -->
           <div class="canvas-viewport" id="canvasViewport">
             <!-- Canvas Header Bar with Network Topology dropdown & Home Action Controls -->
