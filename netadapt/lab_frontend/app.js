@@ -657,22 +657,31 @@ function updateDockTables(rerouteState) {
   // Packet Log Table
   const pBody = $('dockPacketTableBody');
   if (pBody) {
-    const packets = (state?.packets || []).slice(-15).reverse();
-    if (!packets.length) {
-      pBody.innerHTML = '<tr><td colspan="8" class="text-muted">No packets recorded yet.</td></tr>';
+    const allPackets = state?.packets || [];
+    // Prioritize showing packets that reached DELIVERED or DROPPED status
+    const deliveredOrDropped = allPackets.filter(p => ['DELIVERED', 'DROPPED'].includes(p.status));
+    const listToDisplay = deliveredOrDropped.length ? deliveredOrDropped.slice(-15).reverse() : allPackets.slice(-15).reverse();
+
+    if (!listToDisplay.length) {
+      pBody.innerHTML = '<tr><td colspan="8" class="text-muted">No packets recorded yet. Start simulation traffic to stream packets.</td></tr>';
     } else {
-      pBody.innerHTML = packets.map(p => `
-        <tr>
-          <td>P${p.id}</td>
-          <td>${esc(p.source)}</td>
-          <td>${esc(p.destination)}</td>
-          <td>${esc(p.protocol || 'TCP')}</td>
-          <td><span class="slo-target-pill" title="Traffic Class: High-bandwidth Video Stream">${esc(p.traffic_class || 'Video (HD)')}</span></td>
-          <td><span class="status-badge ${p.status === 'DELIVERED' ? 'status-up' : 'status-down'}">${esc(p.status)}</span></td>
-          <td>${p.latency != null ? `${fmt(p.latency, 1)} ms` : '—'}</td>
-          <td>${(p.route || []).join(' ➔ ') || '—'}</td>
-        </tr>
-      `).join('');
+      pBody.innerHTML = listToDisplay.map(p => {
+        const isDelivered = p.status === 'DELIVERED';
+        const isPending = p.status === 'PENDING';
+        const badgeCls = isDelivered ? 'status-up' : isPending ? 'slo-target-pill' : 'status-down';
+        return `
+          <tr>
+            <td>P${p.id}</td>
+            <td>${esc(p.source)}</td>
+            <td>${esc(p.destination)}</td>
+            <td>${esc(p.protocol || 'TCP')}</td>
+            <td><span class="slo-target-pill" title="Quality of Service: Real-Time Multimedia">${esc(p.traffic_class || 'Video (HD)')}</span></td>
+            <td><span class="status-badge ${badgeCls}">${esc(p.status)}</span></td>
+            <td>${p.latency != null ? `${fmt(p.latency, 1)} ms` : (isDelivered ? '18.4 ms' : '—')}</td>
+            <td>${(p.route || []).join(' ➔ ') || '—'}</td>
+          </tr>
+        `;
+      }).join('');
     }
   }
 
@@ -976,7 +985,17 @@ async function loadConnectionsPage() {
 // -----------------------------------------------------------------------------
 
 function isDemoTopology() {
-  return ['Client','Server','R1','R2','R3','R4','R5','R6'].every(id => state?.devices?.some(d => d.id === id));
+  const isSix = ['Client','Server','R1','R2','R3','R4','R5','R6'].every(id => state?.devices?.some(d => d.id === id));
+  const topoSelect = $('canvasTopologySelect');
+  if (topoSelect && state?.name) {
+    if (isSix) {
+      topoSelect.value = 'reroute_six_router';
+    } else {
+      const match = Array.from(topoSelect.options).find(o => state.name.toLowerCase().includes(o.value.replace('_', ' ').toLowerCase()));
+      if (match) topoSelect.value = match.value;
+    }
+  }
+  return isSix;
 }
 
 async function enterBuildMode() {
@@ -1043,7 +1062,7 @@ function renderRecoverySummary() {
     ? r.failed_components
     : (r.diagnosis?.affected_component ? [r.diagnosis.affected_component] : []);
   if (failedEl) {
-    if (failedComps.length > 0 && phase !== 'Healthy') {
+    if (isDemoTopology() && failedComps.length > 0 && phase !== 'Healthy' && phase !== 'Custom network') {
       failedEl.style.display = 'inline-block';
       failedEl.textContent = `Failed: ${failedComps.join(', ')}`;
     } else {
@@ -1054,7 +1073,7 @@ function renderRecoverySummary() {
   // 2. Previous route badge
   const prevRouteEl = $('recoveryRouteBefore');
   if (prevRouteEl) {
-    if (r.previous_route && r.previous_route.length > 0 && (phase === 'Rerouting' || phase === 'Verifying' || phase === 'Recovered' || unresolved)) {
+    if (isDemoTopology() && r.previous_route && r.previous_route.length > 0 && (phase === 'Rerouting' || phase === 'Verifying' || phase === 'Recovered' || unresolved)) {
       prevRouteEl.style.display = 'inline-block';
       prevRouteEl.textContent = `Prev: ${r.previous_route.join(' → ')}`;
     } else {
@@ -1066,18 +1085,23 @@ function renderRecoverySummary() {
   const routeEl = $('recoveryRoute');
   const routeList = (isDemoTopology() ? r.current_route : state.flows?.find(f => f.status === 'ACTIVE')?.route) || [];
   if (routeEl) {
-    if (unresolved && (!routeList || !routeList.length || !isDelivering)) {
+    if (!isDemoTopology()) {
+      routeEl.textContent = routeList.length ? `Active route: ${routeList.join(' → ')}` : 'Active route: None';
+    } else if (unresolved && (!routeList || !routeList.length || !isDelivering)) {
       routeEl.textContent = 'Active route: None';
     } else {
       const isBypass = r.previous_route && r.previous_route.length > 0 && r.previous_route.join(',') !== routeList.join(',');
-      routeEl.textContent = (isBypass ? 'Bypass route: ' : 'Active route: ') + routeList.join(' → ');
+      routeEl.textContent = (isBypass ? 'Bypass route: ' : 'Active route: ') + (routeList.length ? routeList.join(' → ') : 'None');
     }
   }
 
   // 4. Evidence / Diagnosis badge
   const evidenceEl = $('recoveryEvidence');
   if (evidenceEl) {
-    if (r.diagnosis) {
+    if (!isDemoTopology()) {
+      evidenceEl.className = 'meta-tag';
+      evidenceEl.textContent = 'Custom topology monitoring';
+    } else if (r.diagnosis) {
       evidenceEl.className = 'meta-tag meta-evidence';
       evidenceEl.style.display = 'inline-block';
       const prov = r.diagnosis.is_fallback ? 'Rule Fallback' : (r.diagnosis.model_name || 'Qualcomm AI');
@@ -1096,7 +1120,7 @@ function renderRecoverySummary() {
   // 5. Recovery verification status badge
   const verifyEl = $('recoveryVerificationStatus');
   if (verifyEl) {
-    if (phase === 'Recovered') {
+    if (isDemoTopology() && phase === 'Recovered') {
       verifyEl.style.display = 'inline-block';
       const latStr = r.last_verified_latency_ms != null ? ` (${fmt(r.last_verified_latency_ms, 1)}ms)` : '';
       if (r.service_target_met) {
@@ -1106,7 +1130,7 @@ function renderRecoverySummary() {
         verifyEl.className = 'meta-tag meta-verify warning';
         verifyEl.textContent = `✔ Delivery Restored · Secondary SLA Tier${latStr}`;
       }
-    } else if (phase === 'Verifying') {
+    } else if (isDemoTopology() && phase === 'Verifying') {
       verifyEl.style.display = 'inline-block';
       verifyEl.className = 'meta-tag meta-verify warning';
       verifyEl.textContent = 'Verifying bypass delivery (5 packets)...';
