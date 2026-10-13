@@ -1399,15 +1399,18 @@ function bindNode(el) {
 function initTheme() {
   const saved = localStorage.getItem('nexus_theme') || 'light';
   setTheme(saved);
-  const btn = $('themeToggleBtn');
-  if (btn) {
-    btn.onclick = () => {
-      const current = document.documentElement.getAttribute('data-theme') || 'light';
-      const next = current === 'light' ? 'dark' : 'light';
-      setTheme(next);
-      toast(`Switched to ${next.toUpperCase()} mode`);
-    };
-  }
+  const toggleTheme = () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = current === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    toast(`Switched to ${next.toUpperCase()} mode`);
+  };
+
+  const topBtn = $('themeToggleBtn');
+  if (topBtn) topBtn.onclick = toggleTheme;
+
+  const sideBtn = $('sidebarThemeToggleBtn');
+  if (sideBtn) sideBtn.onclick = toggleTheme;
 }
 
 function setTheme(t) {
@@ -1415,6 +1418,11 @@ function setTheme(t) {
   localStorage.setItem('nexus_theme', t);
   const icon = $('themeToggleIcon');
   if (icon) icon.textContent = t === 'light' ? '☀️' : '🌙';
+
+  const sideIcon = $('sidebarThemeIcon');
+  const sideLabel = $('sidebarThemeLabel');
+  if (sideIcon) sideIcon.textContent = t === 'light' ? '🌙' : '☀️';
+  if (sideLabel) sideLabel.textContent = t === 'light' ? 'Dark Mode' : 'Light Mode';
 }
 
 function bindControls() {
