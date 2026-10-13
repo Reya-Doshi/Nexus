@@ -21,49 +21,46 @@ Unlike conventional reactive routing protocols or brittle automation scripts, NE
 
 ```mermaid
 flowchart TB
-    subgraph PRESENTATION ["1. PRESENTATION & INTERACTION LAYER"]
-        UI["🖥️ NEXUS Interactive Web Dashboard<br/>(HTML5 / SVG / CSS / Vanilla JS)"]
-        CANVAS["⚡ Live Canvas Viewport<br/>• Dynamic Topology Drag & Drop<br/>• Real-time Packet Animation<br/>• Visual Link & Flow Inspection"]
-        CONTROLS["🎛️ Simulation Controls<br/>• Fault Injection Triggers<br/>• A/B Comparison Toggle<br/>• Step & Playback Speed"]
-        UI --- CANVAS
-        UI --- CONTROLS
+    subgraph PRESENTATION ["1. Presentation & Interaction Layer"]
+        UI["NEXUS Web Dashboard<br/>HTML5 / SVG / CSS / Vanilla JS"]
+        CANVAS["Live Canvas Viewport<br/>Dynamic Topology & Real-time Animation"]
+        CONTROLS["Simulation Controls<br/>Fault Triggers & A/B Comparison"]
+        UI --> CANVAS
+        UI --> CONTROLS
     end
 
-    subgraph ENGINE ["2. SIMULATION & TELEMETRY CONTROL PLANE (Python)"]
-        API["🌐 High-Throughput REST API<br/>(LabSession Server)"]
-        SIM["⚙️ NetAdapt Discrete-Event Simulator<br/>• Deterministic Queue Model & TTL<br/>• Multi-Path Forwarding & Traffic Classes<br/>• Topology State Graph (NetworkX)"]
-        TELEM["📊 Rolling Telemetry Collector<br/>• Packet Delivery Ratio (PDR)<br/>• End-to-End Latency & Jitter<br/>• Heartbeat Probes & Queue Congestion"]
-        DETECTOR["🔍 Explainable Anomaly Detector<br/>• Latency Slope Threshold (≥23.5ms)<br/>• Persistent Congestion Tracking (≥20%)<br/>• Zero-Loss Predictive Early Warning"]
-        
-        API <--> SIM
+    subgraph ENGINE ["2. Simulation & Telemetry Control Plane (Python)"]
+        API["REST API Server<br/>LabSession Engine"]
+        SIM["NetAdapt Discrete-Event Simulator<br/>Queue Model & Multi-Path Forwarding"]
+        TELEM["Rolling Telemetry Collector<br/>PDR, Latency, Jitter, Heartbeats"]
+        DETECTOR["Explainable Anomaly Detector<br/>Predictive Early Warning"]
+        API --> SIM
         SIM --> TELEM
         TELEM --> DETECTOR
     end
 
-    subgraph AI_LAYER ["3. HARDWARE-ACCELERATED INFERENCE (Qualcomm)"]
-        AI_CLIENT["⚡ Non-Blocking AI Diagnostic Client<br/>• Asynchronous Worker Threading<br/>• Epoch-Based Request Invalidation<br/>• WAN Resilience & Timeout Guard"]
-        Q_CLOUD["🧠 Qualcomm Cloud AI 100 on Cirrascale<br/>• Llama-3.1-8B Dedicated LLM Inference<br/>• Root-Cause Synthesis & Anomaly Explanation<br/>• Recommended Recovery Policy"]
-        RULE_FB["🛡️ Deterministic Rule Fallback<br/>(Failsafe on Cloud WAN Timeout)"]
-        
-        DETECTOR -- "Anomaly Trigger" --> AI_CLIENT
-        AI_CLIENT <--> |"REST / JSON Payload"| Q_CLOUD
-        AI_CLIENT -.-> |"Timeout / WAN Fail"| RULE_FB
+    subgraph AI_LAYER ["3. Hardware-Accelerated Inference (Qualcomm)"]
+        AI_CLIENT["Asynchronous AI Client<br/>Non-Blocking Worker & Epoch Control"]
+        Q_CLOUD["Qualcomm Cloud AI 100 on Cirrascale<br/>Llama-3.1-8B Dedicated LLM Inference"]
+        RULE_FB["Deterministic Rule Fallback<br/>Failsafe on WAN Timeout"]
+        AI_CLIENT --> Q_CLOUD
+        AI_CLIENT -.-> RULE_FB
     end
 
-    subgraph SAFETY_LAYER ["4. DETERMINISTIC SAFETY & HEALING ENGINE"]
-        GUARD["🔒 Graph Topology Validator<br/>• Rejects Hallucinated AI Components<br/>• Enforces Physical Link & Interface Existence"]
-        HEALING["🔄 Deterministic Routing Controller<br/>• Dynamic Dijkstra Bypass Path Computation<br/>• Autonomous Flow-Table Mutation<br/>• Safe Fallback to 'Unresolved' (No Black-Holes)"]
-        VERIFY["✅ Closed-Loop Recovery Verifier<br/>• 5-Consecutive Packet Delivery Check<br/>• Primary SLO Target (≤30.0ms)<br/>• Secondary SLA Tier Tracking (≤50.0ms)"]
-        
-        AI_CLIENT --> GUARD
-        RULE_FB --> GUARD
+    subgraph SAFETY_LAYER ["4. Deterministic Safety & Healing Engine"]
+        GUARD["Graph Topology Validator<br/>Rejects Hallucinated Components"]
+        HEALING["Deterministic Routing Controller<br/>Dijkstra Bypass Path Computation"]
+        VERIFY["Closed-Loop Recovery Verifier<br/>5-Packet Delivery Check & SLO Evaluation"]
         GUARD --> HEALING
-        HEALING --> |"Update Active Route"| SIM
-        SIM --> VERIFY
-        VERIFY --> |"Recovery Status Event"| API
+        HEALING --> VERIFY
     end
 
-    PRESENTATION <==> |"State Poll & Commands (HTTP / WebSocket)"| ENGINE
+    PRESENTATION --> API
+    DETECTOR --> AI_CLIENT
+    AI_CLIENT --> GUARD
+    RULE_FB --> GUARD
+    HEALING --> SIM
+    VERIFY --> API
 ```
 
 ---
@@ -72,26 +69,17 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    %% Step 1: Detect
-    S1["<b>STEP 1: DETECT</b><br/>• Observes rising latency (≥23.5ms)<br/>• Flags congestion before packet loss"]
+    S1["STEP 1: DETECT<br/>Telemetry Monitor<br/>Flags rising latency before packet loss"]
+    S2["STEP 2: TRIGGER<br/>Non-blocking Dispatch<br/>Asynchronous background worker"]
+    S3["STEP 3: DIAGNOSE<br/>Qualcomm Cloud AI 100<br/>Llama-3.1-8B root cause reasoning"]
+    S4["STEP 4: REROUTE<br/>Graph Safety Guard<br/>Applies verified Dijkstra bypass"]
+    S5["STEP 5: VERIFY<br/>Closed-Loop Proof<br/>5-packet delivery verification"]
 
-    %% Step 2: Trigger
-    S2["<b>STEP 2: TRIGGER</b><br/>• Non-blocking background worker<br/>• Traffic flows continuously"]
-
-    %% Step 3: Diagnose
-    S3["<b>STEP 3: DIAGNOSE</b><br/>• <b>Qualcomm Cloud AI 100</b><br/>• Llama-3.1-8B root cause reasoning"]
-
-    %% Step 4: Validate & Reroute
-    S4["<b>STEP 4: REROUTE</b><br/>• Graph safety guardrail check<br/>• Applies verified Dijkstra bypass"]
-
-    %% Step 5: Verify
-    S5["<b>STEP 5: VERIFY</b><br/>• Confirms 5 consecutive packets<br/>• Declares recovery honestly"]
-
-    S1 -->|"Anomaly Alert"| S2
-    S2 -->|"Telemetry Context"| S3
-    S3 -->|"Diagnosis & Action"| S4
-    S4 -->|"Forwarding Table"| S5
-    S5 -.->|"Continuous Health Loop"| S1
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+    S4 --> S5
+    S5 -.-> S1
 ```
 
 1. **Step 1: Detect (Explainable Telemetry)**: The `ExplainableDetector` evaluates rolling delivery rates, jitter, queue depths, and heartbeat probes. In `mild_congestion`, it flags early warnings when path latency approaches 23.5 ms or edge congestion reaches 20%.
