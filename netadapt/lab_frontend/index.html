@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nexus — Network Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=release-3" />
+  <title>NEXUS — AI-Assisted Network Recovery</title>
+  <link rel="stylesheet" href="/styles.css?v=release-4" />
 </head>
 <body>
   <div id="app" class="nexus-app">
     <!-- Left Sidebar Navigation -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="/assets/nexus_logo.png" alt="Nexus by Team Setu" class="brand-logo" />
+        <img src="/assets/nexus_logo.png" alt="NEXUS" class="brand-logo" />
         <div class="brand-text">
-          <div class="brand-title">Nexus</div>
-          <div class="brand-subtitle">by Team Setu</div>
+          <div class="brand-title">NEXUS</div>
+          <div class="brand-subtitle">AI-assisted network recovery</div>
         </div>
       </div>
 
@@ -48,14 +48,33 @@
         </button>
       </nav>
 
+      <!-- Sidebar Tools Section -->
+      <div class="sidebar-section-title">Tools</div>
+      <div class="sidebar-tools">
+        <button class="sidebar-tool-btn" id="toolAddDeviceBtn" title="Add new device to topology">
+          <span class="tool-ic">+</span>
+          <span>Add Device</span>
+        </button>
+        <button class="sidebar-tool-btn" id="toolLoadPresetBtn" title="Load recovery demo preset">
+          <span class="tool-ic">📂</span>
+          <span>Load Preset</span>
+        </button>
+        <button class="sidebar-tool-btn" id="toolResetBtn" title="Reset network simulation">
+          <span class="tool-ic">↻</span>
+          <span>Reset</span>
+        </button>
+        <button class="sidebar-tool-btn" id="toolSaveScenarioBtn" title="Save current network scenario">
+          <span class="tool-ic">💾</span>
+          <span>Save Scenario</span>
+        </button>
+      </div>
+
       <div class="sidebar-footer">
         <div class="sandbox-badge">
-          <svg class="badge-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M11 17a1 1 0 001.447.894l4-2A1 1 0 0017 15V9.236a1 1 0 00-1.447-.894l-4 2a1 1 0 00-.553.894V17zM15.211 6.276a1 1 0 000-1.788l-4.764-2.382a1 1 0 00-.894 0L4.789 4.488a1 1 0 000 1.788l4.764 2.382a1 1 0 00.894 0l4.764-2.382zM4.447 8.342A1 1 0 003 9.236V15a1 1 0 00.553.894l4 2A1 1 0 009 17v-5.764a1 1 0 00-.553-.894l-4-2z"/>
-          </svg>
+          <div class="sandbox-cube-icon">🟩</div>
           <div>
             <strong>Simulation Sandbox</strong>
-            <span>Safe to experiment<br/>No external impact</span>
+            <span>Safe to experiment.<br/>No external impact.</span>
           </div>
         </div>
       </div>
@@ -65,15 +84,20 @@
     <div class="main-viewport">
       <!-- 1. SIMULATOR PAGE -->
       <section id="pageSimulator" class="nexus-page active-page">
-        <!-- Top Toolbar -->
+        <!-- Modern Top Toolbar -->
         <header class="page-topbar">
           <div class="topbar-left">
             <div class="page-title-group">
-              <h1 class="page-title">Network simulator</h1>
-              <span class="project-pill" id="projectPill">Project: Six-router recovery demo ✎</span>
+              <h1 class="page-title">Network Simulator</h1>
+              <span class="project-pill" id="projectPill">Nexus • Six-router recovery lab</span>
             </div>
 
-            <div class="traffic-endpoints"><label>From <select id="trafficSource" aria-label="Traffic source"></select></label><label>To <select id="trafficTarget" aria-label="Traffic destination"></select></label></div>
+            <!-- Endpoints inline -->
+            <div class="traffic-endpoints">
+              <label>From <select id="trafficSource" aria-label="Traffic source"></select></label>
+              <label>To <select id="trafficTarget" aria-label="Traffic destination"></select></label>
+            </div>
+
             <!-- Mode Switcher: Build / Run -->
             <div class="mode-switcher">
               <button id="btnBuildMode" class="mode-btn" title="Build mode: add, connect, drag, and delete devices">
@@ -81,114 +105,178 @@
                 Build
               </button>
               <button id="btnRunMode" class="mode-btn active" title="Run mode: simulated traffic and autonomous self-healing">
-                <svg viewBox="0 0 20 20" fill="currentColor" class="btn-ic"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
-                Run
+                <span class="run-dot">▶</span>
+                <span id="runBtnLabel">Run</span>
               </button>
             </div>
-            <span class="mode-hint" id="modeHint">Build mode is locked while simulation is running</span>
+
+            <!-- Hidden legacy action bridges for hotkeys/compat -->
+            <button id="mainStartBtn" style="display:none;">Start</button>
+            <button id="mainPauseBtn" style="display:none;">Pause</button>
+            <button id="mainResetBtn" style="display:none;">Reset</button>
+            <button id="btnSaveDoc" style="display:none;">Save</button>
+            <button id="btnLoadDoc" style="display:none;">Load</button>
+            <input type="file" id="fileInput" accept=".json" style="display:none;" />
+            <select id="speedSelect" style="display:none;"><option value="1" selected>1x</option></select>
+            <select id="demoPresetSelect" style="display:none;"><option value="reroute_six_router" selected></option></select>
+            <span class="mode-hint" id="modeHint" style="display:none;"></span>
           </div>
 
-          <div class="topbar-right">
-            <!-- Sim Controls -->
-            <div class="sim-actions">
-              <button id="mainStartBtn" class="primary-play-btn" title="Start traffic flow">▶ Start</button>
-              <button id="mainPauseBtn" class="ctrl-btn" title="Pause simulation">Ⅱ Pause</button>
-              <button id="mainStepBtn" class="ctrl-btn" title="Execute single simulation step">⏭ One step</button>
-              <button id="mainResetBtn" class="ctrl-btn" title="Reset simulation and incident state">↻ Reset</button>
-
-              <div class="select-wrap">
-                <select id="speedSelect" title="Simulation speed">
-                  <option value="0.5">Speed 0.5x</option>
-                  <option value="1" selected>Speed 1x</option>
-                  <option value="2">Speed 2x</option>
-                  <option value="4">Speed 4x</option>
-                </select>
-              </div>
-
-              <button id="btnSaveDoc" class="ctrl-btn" title="Save topology to JSON">💾 Save</button>
-              <button id="btnLoadDoc" class="ctrl-btn" title="Load topology from JSON">📁 Load</button>
-              <input type="file" id="fileInput" accept=".json" style="display:none;" />
-
-              <div class="select-wrap">
-                <select id="demoPresetSelect" title="Preset topology selector (replaces current topology)">
-                  <option value="" disabled selected>More presets...</option>
-                  <option value="reroute_six_router">Canonical: Six-router recovery</option>
-                  <option value="self_healing">Lab: Self-healing network</option>
-                  <option value="two_router">Lab: Two router basic</option>
-                  <option value="redundant">Lab: Redundant ring</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Provider Badge & Clock -->
-            <div class="system-meta">
-              <span id="providerBadge" class="provider-pill provider-fallback">● Rules fallback Active</span>
-              <span class="sim-clock" id="clockDisplay">Simulation time <strong>00:00.0</strong></span>
-            </div>
-          </div>
-        </header>
-
-        <!-- KPI Strip: Delivery Rate, Latency, Recovery, Delivered, Auto-heal -->
-        <div class="kpi-strip">
-          <div class="kpi-group">
-            <div class="kpi-item">
-              <span class="kpi-label">Delivery</span>
-              <strong id="metricPdr" class="kpi-value text-sage">100.0%</strong>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Latency / SLO</span>
-              <strong id="metricLatency" class="kpi-value">N/A</strong>
-              <span class="kpi-sub" id="metricSloTarget">SLO ≤ 30.0 ms</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Recovery</span>
-              <strong id="metricRecoveryDuration" class="kpi-value">—</strong>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Packets delivered</span>
-              <strong id="metricDeliveredCount" class="kpi-value">0</strong>
-              <span class="kpi-sub" id="metricPacketsRatio">0 sent</span>
-            </div>
-          </div>
-
-          <div class="kpi-right">
+          <!-- Scenario Injection & Auto-heal -->
+          <div class="topbar-center">
             <div class="scenario-inline">
-              <label for="scenarioSelect">Scenario:</label>
+              <label for="scenarioSelect">Scenario</label>
               <select id="scenarioSelect" class="scenario-select">
-                <option value="mild_congestion" selected>Mild congestion (rising latency)</option>
-                <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
+                <option value="sudden_link_failure" selected>Sudden Link Failure (R2-R4)</option>
+                <option value="mild_congestion">Mild congestion (rising latency)</option>
                 <option value="gradual_congestion">Severe Congestion (R2-R4)</option>
                 <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
               </select>
-              <button id="injectFaultBtn" class="btn-copper-fault" title="Inject selected fault scenario">⚡ Inject fault</button>
+              <button id="injectFaultBtn" class="btn-peach-fault" title="Inject selected fault scenario">
+                ⚡ Inject Fault
+              </button>
             </div>
 
             <div class="toggle-control">
-              <span class="toggle-label" id="autoHealLabel">Auto-heal <strong>ON</strong></span>
+              <span class="toggle-label" id="autoHealLabel">Auto-heal</span>
               <label class="switch">
                 <input type="checkbox" id="autoHealToggle" checked />
                 <span class="slider round"></span>
               </label>
             </div>
           </div>
+
+          <!-- Status strip: Simulation Running pill, Notifications, Theme Toggle, Team Setu -->
+          <div class="topbar-right">
+            <div class="system-meta-strip">
+              <span class="status-running-pill" id="simStatusPill">
+                <span class="status-dot"></span>
+                <span id="simStatusPillText">Simulation Ready</span>
+              </span>
+              <button class="header-icon-btn" id="btnNotifications" title="Notifications">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="h-icon"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>
+              </button>
+              <button class="header-icon-btn theme-toggle-btn" id="themeToggleBtn" title="Toggle Light / Dark Mode">
+                <span id="themeToggleIcon">☀️</span>
+              </button>
+              <div class="user-profile-badge">
+                <span class="avatar-circle">S</span>
+                <span class="user-name">Team Setu</span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- 5 Rich Elevated KPI Cards with Sparklines -->
+        <div class="kpi-cards-grid">
+          <!-- Card 1: Delivery Rate -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap kpi-ic-delivery">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h8m4 0h4m-8-6l6 6-6 6"/></svg>
+            </div>
+            <div class="kpi-meta">
+              <span class="kpi-label">Delivery Rate</span>
+              <strong id="metricPdr" class="kpi-val text-sage">100.0%</strong>
+            </div>
+            <div class="kpi-sparkline">
+              <svg id="kpiSparkDelivery" viewBox="0 0 75 26" preserveAspectRatio="none">
+                <path id="kpiSparkDeliveryPath" d="M0 22 Q 25 18, 50 10 T 75 4" fill="none" stroke="#10B981" stroke-width="2"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Card 2: Latency / SLO -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap kpi-ic-latency">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="kpi-meta">
+              <span class="kpi-label">Latency / SLO</span>
+              <div class="kpi-val-row">
+                <strong id="metricLatency" class="kpi-val">24.4 ms</strong>
+                <span id="metricSloTarget" class="slo-target-pill">≤ 30 ms</span>
+              </div>
+            </div>
+            <div class="kpi-sparkline">
+              <svg id="kpiSparkLatency" viewBox="0 0 75 26" preserveAspectRatio="none">
+                <path id="kpiSparkLatencyPath" d="M0 12 Q 25 18, 50 14 T 75 18" fill="none" stroke="#F59E0B" stroke-width="2"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Card 3: Recovery Time -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap kpi-ic-recovery">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </div>
+            <div class="kpi-meta">
+              <span class="kpi-label">Recovery Time</span>
+              <strong id="metricRecoveryDuration" class="kpi-val">—</strong>
+            </div>
+            <div class="kpi-sparkline">
+              <svg id="kpiSparkRecovery" viewBox="0 0 75 26" preserveAspectRatio="none">
+                <path id="kpiSparkRecoveryPath" d="M0 22 Q 30 22, 50 8 T 75 4" fill="none" stroke="#10B981" stroke-width="2"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Card 4: Packets Delivered -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap kpi-ic-packets">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="kpi-meta">
+              <span class="kpi-label">Packets Delivered</span>
+              <div class="kpi-val-row">
+                <strong id="metricDeliveredCount" class="kpi-val">0</strong>
+                <span class="kpi-sub" id="metricPacketsRatio">/ 0 sent</span>
+              </div>
+            </div>
+            <div class="kpi-sparkline">
+              <svg id="kpiSparkPackets" viewBox="0 0 75 26" preserveAspectRatio="none">
+                <rect x="5" y="16" width="3" height="9" fill="#10B981" rx="1"/>
+                <rect x="13" y="13" width="3" height="12" fill="#10B981" rx="1"/>
+                <rect x="21" y="10" width="3" height="15" fill="#10B981" rx="1"/>
+                <rect x="29" y="7" width="3" height="18" fill="#10B981" rx="1"/>
+                <rect x="37" y="5" width="3" height="20" fill="#10B981" rx="1"/>
+                <rect x="45" y="3" width="3" height="22" fill="#10B981" rx="1"/>
+                <rect x="53" y="2" width="3" height="23" fill="#10B981" rx="1"/>
+                <rect x="61" y="2" width="3" height="23" fill="#10B981" rx="1"/>
+                <rect x="69" y="2" width="3" height="23" fill="#10B981" rx="1"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Card 5: Simulation Time & AI Provider -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap kpi-ic-simtime">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <div class="kpi-meta">
+              <span class="kpi-label">Simulation Time</span>
+              <strong id="clockDisplay" class="kpi-val">00:00.0</strong>
+            </div>
+            <div class="kpi-sparkline">
+              <span id="providerBadge" class="provider-pill-compact provider-live">● Qualcomm AI 100</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Center Workspace: Devices Palette (Left) + Canvas + Right Inspector -->
-        <!-- Incident Lifecycle & Guidance Strip -->
+        <!-- Incident Lifecycle & Guidance Ribbon -->
         <section class="recovery-summary" id="recoverySummary" aria-live="polite">
           <div class="recovery-summary-main">
             <div class="recovery-pipeline-steps" id="pipelineSteps">
-              <span class="pipe-step" data-step="Healthy">1. Monitoring</span>
+              <span class="pipe-step active" data-step="Healthy">1 Monitoring</span>
               <span class="pipe-arrow">➔</span>
-              <span class="pipe-step" data-step="Detected">2. Detected</span>
+              <span class="pipe-step" data-step="Detected">2 Detected</span>
               <span class="pipe-arrow">➔</span>
-              <span class="pipe-step" data-step="Diagnosing">3. Diagnosing</span>
+              <span class="pipe-step" data-step="Diagnosing">3 Diagnosing</span>
               <span class="pipe-arrow">➔</span>
-              <span class="pipe-step" data-step="Rerouting">4. Rerouting</span>
+              <span class="pipe-step" data-step="Rerouting">4 Rerouting</span>
               <span class="pipe-arrow">➔</span>
-              <span class="pipe-step" data-step="Verifying">5. Verifying</span>
+              <span class="pipe-step" data-step="Verifying">5 Verifying</span>
               <span class="pipe-arrow">➔</span>
-              <span class="pipe-step" data-step="Recovered">6. Recovered</span>
+              <span class="pipe-step" data-step="Recovered">6 Recovered</span>
             </div>
             <div class="recovery-status-bar">
               <h2 id="recoveryHeading" class="recovery-heading-compact">Ready to demonstrate recovery</h2>
@@ -198,7 +286,7 @@
                 <span id="recoveryFailedComp" class="meta-tag meta-failed" style="display:none;"></span>
                 <span id="recoveryRouteBefore" class="meta-tag meta-prev-route" style="display:none;"></span>
                 <span id="recoveryRoute" class="meta-tag meta-route"></span>
-                <span id="recoveryEvidence" class="meta-tag"></span>
+                <span id="recoveryEvidence" class="meta-tag meta-evidence"></span>
                 <span id="recoveryVerificationStatus" class="meta-tag meta-verify" style="display:none;"></span>
               </div>
             </div>
@@ -208,9 +296,11 @@
             <p id="scenarioHelp" class="scenario-help-text"></p>
           </div>
         </section>
+
+        <!-- Center Workspace: Palette + Canvas + Right Inspector -->
         <div class="workspace-body">
-          <!-- Build Palette (Left in Build mode) -->
-          <div class="devices-palette" id="devicesPalette">
+          <!-- Build Palette (Toggled in Build mode) -->
+          <div class="devices-palette" id="devicesPalette" style="display:none;">
             <div class="palette-header">DEVICES</div>
             <button class="palette-btn" id="paletteAddRouter" data-type="router" title="Add Router">
               <div class="palette-icon">◉</div>
@@ -239,26 +329,38 @@
               <svg viewBox="0 0 20 20" fill="currentColor" class="palette-svg"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
               <span>Delete</span>
             </button>
-            <div class="palette-tip" id="paletteTip">Pause and switch to Build to edit</div>
+            <div class="palette-tip" id="paletteTip">Switch to Build to place devices</div>
           </div>
 
           <!-- Topology Canvas Area -->
           <div class="canvas-viewport" id="canvasViewport">
-            <!-- Canvas Controls Overlay (Top-Right) -->
-            <div class="canvas-floating-controls">
+            <!-- Canvas Header Bar with Network Topology dropdown -->
+            <div class="canvas-header-bar">
+              <div class="canvas-title-cluster">
+                <span class="canvas-title">Network Topology</span>
+                <select id="canvasTopologySelect" class="canvas-topo-select">
+                  <option value="canonical" selected>Custom Network</option>
+                  <option value="reroute_six_router">Six-Router Mesh</option>
+                  <option value="redundant">Dual Trunk Redundant</option>
+                </select>
+                <button class="canvas-edit-name-btn" title="Edit Topology Name">✏️</button>
+              </div>
+            </div>
+
+            <!-- Floating Tool Rail on Left -->
+            <div class="canvas-floating-toolrail">
               <button class="canvas-btn active" id="btnToolSelect" title="Select tool">⇱</button>
               <button class="canvas-btn" id="btnToolPan" title="Pan canvas">✋</button>
+              <button class="canvas-btn" id="btnZoomIn" title="Zoom in">🔍+</button>
+              <button class="canvas-btn" id="btnZoomOut" title="Zoom out">🔍−</button>
               <button class="canvas-btn" id="btnCanvasFit" title="Fit topology to view">⛶</button>
-              <button class="canvas-btn" id="btnZoomOut" title="Zoom out">−</button>
-              <span class="zoom-level" id="zoomLevel">100%</span>
-              <button class="canvas-btn" id="btnZoomIn" title="Zoom in">+</button>
             </div>
 
             <!-- SVG Topology Canvas -->
             <svg id="networkCanvas" viewBox="0 0 1100 620" role="application" aria-label="Nexus Network Topology">
               <defs>
                 <pattern id="subtleGrid" width="36" height="36" patternUnits="userSpaceOnUse">
-                  <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#161b22" stroke-width="1" />
+                  <path d="M 36 0 L 0 0 0 36" fill="none" stroke="var(--canvas-grid)" stroke-width="1" />
                 </pattern>
                 <filter id="packetGlow">
                   <feGaussianBlur stdDeviation="3" result="blur" />
@@ -268,7 +370,7 @@
                   </feMerge>
                 </filter>
                 <filter id="nodeShadow">
-                  <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".6" />
+                  <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity=".12" />
                 </filter>
               </defs>
               <rect id="gridRect" x="0" y="0" width="1100" height="620" fill="url(#subtleGrid)" />
@@ -279,15 +381,23 @@
               <path id="connectPreview" class="connect-preview-line" d="" />
             </svg>
 
-            <!-- Legend Overlay (Bottom-Center) -->
+            <!-- Bottom Legend & Zoom Bar -->
             <div class="canvas-legend-strip">
-              <span class="leg-pill"><i class="leg-dot moving-packet"></i> Packet (moving)</span>
-              <span class="leg-pill"><i class="leg-line active-sage"></i> Active route</span>
-              <span class="leg-pill"><i class="leg-line failed-dash"></i> Failed route</span>
-              <span class="leg-pill"><i class="leg-line inactive-link"></i> Inactive link</span>
+              <div class="legend-pills-row">
+                <span class="leg-pill"><i class="leg-line active-sage"></i> Active route</span>
+                <span class="leg-pill"><i class="leg-line failed-dash"></i> Failed route</span>
+                <span class="leg-pill"><i class="leg-line inactive-link"></i> Inactive link</span>
+                <span class="leg-pill"><i class="leg-line alternate-blue"></i> Alternate route</span>
+              </div>
               <div class="canvas-status-banner" id="canvasStatusBanner">
                 <span class="status-ic">✔</span>
                 <span id="canvasStatusMsg">Flow streaming through active primary path. 100% delivery.</span>
+              </div>
+              <div class="canvas-zoom-control">
+                <button class="zoom-mini-btn" id="btnZoomFitMini" title="Fit Screen">⛶</button>
+                <button class="zoom-mini-btn" id="btnZoomOutMini">−</button>
+                <span class="zoom-level" id="zoomLevel">100%</span>
+                <button class="zoom-mini-btn" id="btnZoomInMini">+</button>
               </div>
             </div>
 
@@ -297,61 +407,131 @@
             </div>
           </div>
 
-          <!-- Right Inspector Panel -->
+          <!-- Right Inspector Panel (Matching Screenshot Specs) -->
           <aside class="right-inspector" id="rightInspector">
-            <div class="inspector-header">
-              <div class="ins-title-row">
-                <div class="ins-glyph" id="insHeroGlyph">◉</div>
-                <div class="ins-titles">
-                  <h3 id="insTitle">R2</h3>
-                  <span id="insSubtitle">Router · Healthy</span>
-                </div>
-              </div>
-              <button class="ins-collapse-btn" id="insCloseBtn" title="Close inspector">⌃</button>
+            <div class="ins-tabs">
+              <button class="ins-tab active" data-tab="node">Node Details</button>
+              <button class="ins-tab" data-tab="link">Link Details</button>
+              <button class="ins-tab" data-tab="simulation">Simulation</button>
             </div>
 
-            <div class="ins-tabs">
-              <button class="ins-tab active" data-tab="overview">Overview</button>
-              <button class="ins-tab" data-tab="routes">Routes</button>
-              <button class="ins-tab" data-tab="events">Events</button>
+            <div class="inspector-header">
+              <div class="ins-title-row">
+                <div class="ins-glyph" id="insHeroGlyph">
+                  <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <div class="ins-titles">
+                  <h3 id="insTitle">R2</h3>
+                  <span id="insSubtitle" class="ins-status-badge status-up">● Online</span>
+                </div>
+              </div>
+              <button class="ins-collapse-btn" id="insCloseBtn" title="Close inspector">✕</button>
             </div>
 
             <div class="ins-body" id="inspectorBody">
-              <!-- Dynamically rendered Overview / Routes / Events / Link details -->
+              <!-- Dynamically populated or default node stats -->
+              <div class="ins-section">
+                <div class="prop-row"><label>Type</label><strong id="insPropType">Router</strong></div>
+                <div class="prop-row"><label>IP Address</label><span id="insPropIp">10.0.2.1</span></div>
+                <div class="prop-row"><label>Interfaces</label><span id="insPropInterfaces">3 (2 active)</span></div>
+                
+                <div class="prop-metric-bar">
+                  <div class="metric-bar-head"><span>CPU Usage</span><strong id="insPropCpuText">22%</strong></div>
+                  <div class="progress-track"><div class="progress-fill green-fill" id="insPropCpuFill" style="width:22%;"></div></div>
+                </div>
+
+                <div class="prop-metric-bar">
+                  <div class="metric-bar-head"><span>Memory Usage</span><strong id="insPropMemText">38%</strong></div>
+                  <div class="progress-track"><div class="progress-fill teal-fill" id="insPropMemFill" style="width:38%;"></div></div>
+                </div>
+
+                <div class="prop-row"><label>Uptime</label><span id="insPropUptime">01:24:15</span></div>
+              </div>
+
+              <div class="ins-actions-row">
+                <button class="ins-btn" id="insRestartDeviceBtn">Restart Node</button>
+                <button class="ins-btn danger" id="insShutdownDeviceBtn">Shutdown Node</button>
+              </div>
             </div>
           </aside>
         </div>
 
-
-        <!-- Bottom Dock: Telemetry Charts, Packet Log, Events -->
+        <!-- Bottom Dock: 3 Live Charts & Recent Events -->
         <footer class="bottom-dock">
           <div class="dock-tabs">
             <button class="dock-tab active" data-dock="telemetry" id="tabDockTelemetry">Telemetry</button>
-            <button class="dock-tab" data-dock="packets" id="tabDockPackets">Packet log</button>
+            <button class="dock-tab" data-dock="packets" id="tabDockPackets">Packet Log</button>
             <button class="dock-tab" data-dock="events" id="tabDockEvents">Events</button>
           </div>
 
           <div class="dock-content">
-            <!-- Telemetry Chart View -->
+            <!-- 3 Modern Interactive Charts + Events (Matching Screenshot) -->
             <div class="dock-view active-dock" id="dockViewTelemetry">
-              <div class="telemetry-chart-wrap">
-                <div class="chart-header">
-                  <span>Delivery rate (%)</span>
-                  <div class="chart-annotation" id="chartAnnotation">Real observed telemetry samples</div>
+              <div class="telemetry-triple-charts">
+                <!-- Chart 1: Delivery Rate (%) Area Chart -->
+                <div class="sub-chart-card">
+                  <div class="sub-chart-head">
+                    <span class="sub-chart-title">Delivery Rate (%)</span>
+                    <strong class="sub-chart-stat text-sage" id="subChartDeliveryStat">100.0%</strong>
+                  </div>
+                  <div class="sub-chart-svg-box">
+                    <svg id="chartDeliverySvg" viewBox="0 0 280 80" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="deliveryGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#10B981" stop-opacity="0.32"/>
+                          <stop offset="100%" stop-color="#10B981" stop-opacity="0.0"/>
+                        </linearGradient>
+                      </defs>
+                      <line x1="0" y1="20" x2="280" y2="20" stroke="var(--panel-border)" stroke-dasharray="2 3"/>
+                      <line x1="0" y1="48" x2="280" y2="48" stroke="var(--panel-border)" stroke-dasharray="2 3"/>
+                      <line x1="0" y1="72" x2="280" y2="72" stroke="var(--panel-border)"/>
+                      <path id="chartDeliveryArea" d="M0 20 L280 20 L280 75 L0 75 Z" fill="url(#deliveryGrad)"/>
+                      <path id="chartDeliveryLine" d="M0 20 L280 20" fill="none" stroke="#10B981" stroke-width="2.5"/>
+                    </svg>
+                    <div class="chart-x-axis"><span>0s</span><span>5s</span><span>10s</span><span>15s</span><span>20s</span></div>
+                  </div>
                 </div>
-                <div class="chart-svg-box">
-                  <svg id="telemetryChartSvg" viewBox="0 0 650 90" preserveAspectRatio="none">
-                    <!-- Dynamic sparkline / step line graph -->
-                    <line x1="0" y1="80" x2="650" y2="80" stroke="#1f2937" stroke-width="1" />
-                    <line x1="0" y1="40" x2="650" y2="40" stroke="#1f2937" stroke-width="1" stroke-dasharray="2 2" />
-                    <path id="chartPath" d="" fill="none" stroke="#68d391" stroke-width="2.5" />
-                    <g id="chartMarkers"></g>
-                  </svg>
+
+                <!-- Chart 2: Latency (ms) Line Chart with SLO Target Line -->
+                <div class="sub-chart-card">
+                  <div class="sub-chart-head">
+                    <span class="sub-chart-title">Latency (ms)</span>
+                    <strong class="sub-chart-stat text-copper" id="subChartLatencyStat">24.4 ms</strong>
+                  </div>
+                  <div class="sub-chart-svg-box">
+                    <svg id="chartLatencySvg" viewBox="0 0 280 80" preserveAspectRatio="none">
+                      <line x1="0" y1="40" x2="280" y2="40" stroke="#F59E0B" stroke-dasharray="4 3" stroke-width="1.5"/>
+                      <text x="210" y="36" fill="#D97706" font-size="8.5" font-family="var(--font-mono)">SLO ≤ 30 ms</text>
+                      <path id="chartLatencyLine" d="M0 48 Q 70 54, 140 50 T 280 48" fill="none" stroke="#F59E0B" stroke-width="2"/>
+                      <g id="chartLatencyDots"></g>
+                    </svg>
+                    <div class="chart-x-axis"><span>0s</span><span>5s</span><span>10s</span><span>15s</span><span>20s</span></div>
+                  </div>
+                </div>
+
+                <!-- Chart 3: Packets Delivered Count Bar Chart -->
+                <div class="sub-chart-card">
+                  <div class="sub-chart-head">
+                    <span class="sub-chart-title">Packets Delivered (count)</span>
+                    <strong class="sub-chart-stat" id="subChartPacketsStat">80 / 80</strong>
+                  </div>
+                  <div class="sub-chart-svg-box">
+                    <svg id="chartPacketsBarSvg" viewBox="0 0 280 80" preserveAspectRatio="none">
+                      <g id="chartPacketsBars">
+                        <!-- Dynamically filled with vertical bars -->
+                      </g>
+                    </svg>
+                    <div class="chart-x-axis"><span>0s</span><span>5s</span><span>10s</span><span>15s</span><span>20s</span></div>
+                  </div>
                 </div>
               </div>
 
+              <!-- Right: Recent Events with Clear button -->
               <div class="dock-recent-events">
-                <div class="dock-section-title">Recent events</div>
+                <div class="recent-events-head">
+                  <span class="dock-section-title">Recent Events</span>
+                  <button id="btnClearRecentEvents" class="clear-events-btn">Clear</button>
+                </div>
                 <div class="recent-events-list" id="dockRecentEventsList">
                   <div class="ev-row-empty">No simulation events yet.</div>
                 </div>
@@ -393,18 +573,18 @@
       <section id="pageIncidents" class="nexus-page" style="display:none;">
         <header class="page-topbar">
           <div class="topbar-left">
-            <h1 class="page-title">Incident history</h1>
+            <h1 class="page-title">Incident History</h1>
             <span class="project-pill">Session-scoped live self-healing incidents</span>
           </div>
           <div class="topbar-right">
-            <button id="btnExportIncidentReport" class="ctrl-btn" title="Export incident history report">📥 Export report</button>
+            <button id="btnExportIncidentReport" class="ctrl-btn" title="Export incident history report">📥 Export Report</button>
           </div>
         </header>
 
         <div class="page-container">
           <div class="incidents-table-card">
             <div class="card-head">
-              <h3>Incident event log</h3>
+              <h3>Incident Event Log</h3>
               <span class="text-muted" id="incidentsTotalBadge">0 incidents recorded</span>
             </div>
             <div class="table-scroll">
@@ -439,7 +619,7 @@
                 <div class="prop-row"><label>Recovery Duration:</label><span id="incDetailDuration">—</span></div>
                 <div class="prop-row"><label>Likely Cause:</label><span id="incDetailCause">None</span></div>
                 <div class="prop-row"><label>Affected Component:</label><span id="incDetailComponent">None</span></div>
-                <div class="prop-row"><label>Diagnostic Provider:</label><span id="incDetailProvider">Deterministic Fallback</span></div>
+                <div class="prop-row"><label>Diagnostic Provider:</label><span id="incDetailProvider">Qualcomm Cloud AI 100</span></div>
                 <div class="prop-row"><label>Recommended Action:</label><span id="incDetailAction">None</span></div>
               </div>
               <div class="detail-col">
@@ -460,7 +640,7 @@
       <section id="pageCompare" class="nexus-page" style="display:none;">
         <header class="page-topbar">
           <div class="topbar-left">
-            <h1 class="page-title">Compare runs</h1>
+            <h1 class="page-title">Compare Runs</h1>
             <span class="project-pill">A/B Benchmark: Baseline (Auto-Heal OFF) vs Nexus Self-Healing (Auto-Heal ON)</span>
           </div>
           <div class="topbar-right">
@@ -474,7 +654,7 @@
               </select>
               <label for="compareSeedInput">Seed:</label>
               <input type="number" id="compareSeedInput" value="42" class="num-input" style="width:50px;" />
-              <button id="btnRunComparisonBenchmark" class="primary-play-btn">▶ Run comparison</button>
+              <button id="btnRunComparisonBenchmark" class="primary-play-btn">▶ Run Comparison</button>
             </div>
           </div>
         </header>
@@ -514,7 +694,9 @@
             </div>
           </div>
 
-          <div class="compare-summary-card"><p id="comparisonContext">Run a comparison to measure both outcomes. No results yet.</p><p>Auto-heal ON outcome: <strong id="cmpOnOutcome">—</strong></p>
+          <div class="compare-summary-card">
+            <p id="comparisonContext">Run a comparison to measure both outcomes. No results yet.</p>
+            <p>Auto-heal ON outcome: <strong id="cmpOnOutcome">—</strong></p>
             <div class="summary-metric">
               <span>Delivery Improvement:</span>
               <strong id="cmpPdrDelta" class="text-sage">—</strong>
@@ -527,7 +709,7 @@
               <span>Offered Workload:</span>
               <strong>30 Packets (Seed 42)</strong>
             </div>
-            <button id="btnDownloadCompareResults" disabled class="ctrl-btn" title="Download benchmark JSON results">📥 Download results</button>
+            <button id="btnDownloadCompareResults" disabled class="ctrl-btn" title="Download benchmark JSON results">📥 Download Results</button>
           </div>
         </div>
       </section>
@@ -537,7 +719,7 @@
         <header class="page-topbar">
           <div class="topbar-left">
             <h1 class="page-title">Connections</h1>
-            <span class="project-pill">Hardware Acceleration &amp; Telegram Incident Dispatch Status</span>
+            <span class="project-pill">Hardware Acceleration &amp; Remote Alert Dispatch</span>
           </div>
         </header>
 
@@ -549,14 +731,14 @@
                 <div class="conn-ic">🧠</div>
                 <div>
                   <h3>Qualcomm Cloud AI 100</h3>
-                  <span>Cirrascale AI Suite Diagnostic Engine</span>
+                  <span>Cirrascale AI Playground Diagnostic Engine</span>
                 </div>
-                <span class="conn-status-badge" id="qcStatusBadge">Ready</span>
+                <span class="conn-status-badge status-up" id="qcStatusBadge">Ready</span>
               </div>
               <div class="conn-card-body">
                 <div class="prop-row"><label>Endpoint:</label><span id="qcEndpoint">https://aisuite.cirrascale.com/apis/v2</span></div>
                 <div class="prop-row"><label>Model:</label><span id="qcModel">Llama-3.1-8B</span></div>
-                <div class="prop-row"><label>Status:</label><span id="qcStatusDetail">Ready (Cirrascale Cloud AI 100)</span></div>
+                <div class="prop-row"><label>Status:</label><span id="qcStatusDetail">Active (Qualcomm Cloud AI 100)</span></div>
                 <div class="prop-row"><label>Fallback Mode:</label><span>Deterministic rule diagnosis automatically activates if endpoint is unreachable.</span></div>
               </div>
             </div>
@@ -589,6 +771,6 @@
   <div id="toast" class="toast"></div>
 
   <!-- Shared Nexus Application Logic -->
-  <script src="/app.js?v=release-3"></script>
+  <script src="/app.js?v=release-4"></script>
 </body>
 </html>

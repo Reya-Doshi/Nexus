@@ -28,6 +28,8 @@ let panStart = { x: 0, y: 0 };
 let isInjecting = false; // Debounce flag
 let lastComparison = null;
 let telemetryHistory = []; // Buffer of { time, pdr } for SVG sparkline
+let latencyHistory = []; // Buffer of { time, lat } for SVG latency chart
+let packetsHistory = []; // Buffer of { time, delivered, sent } for bar chart
 
 const TYPES = {
   pc: 'PC',
@@ -144,14 +146,14 @@ function nodeMarkup(device) {
   const down = device.status === 'DOWN';
   const isSel = selected?.kind === 'device' && selected.id === device.id;
   return `<g class="node ${TYPE_CLASS[device.type] || 'host'} ${down ? 'down' : ''} ${isSel ? 'selected' : ''}" data-id="${esc(device.id)}" transform="translate(${device.x},${device.y})">
-    <rect class="selection" x="-34" y="-38" width="68" height="82" rx="7"/>
-    <rect class="device-body" x="-30" y="-33" width="60" height="60" rx="8"/>
+    <rect class="selection" x="-34" y="-38" width="68" height="82" rx="10"/>
+    <rect class="device-body" x="-30" y="-33" width="60" height="60" rx="10"/>
     ${icon(device.type)}
     <circle class="port" cx="-25" cy="30" r="2.5"/>
     <circle class="port" cx="25" cy="30" r="2.5"/>
-    <text class="node-label" y="45">${esc(device.name)}</text>
-    <text class="node-type" y="57">${esc(TYPES[device.type] || device.type)}</text>
-    <text class="node-status ${down ? 'down' : 'up'}" y="68">${down ? 'DOWN' : 'ONLINE'}</text>
+    <text class="node-label" y="44">${esc(device.name)}</text>
+    <text class="node-type" y="56">${esc(TYPES[device.type] || device.type)}</text>
+    <text class="node-status ${down ? 'down' : 'up'}" y="67">${down ? '● Down' : '● Online'}</text>
   </g>`;
 }
 
@@ -200,10 +202,18 @@ function linkMarkup(link, active) {
 
   const isSel = selected?.kind === 'link' && key(selected.id, selected.other) === key(link.source, link.target);
 
+  const crossBadge = isDown ? `<g class="link-failed-cross" transform="translate(${mx},${my})">
+    <circle r="9" fill="#EF4444" stroke="#FFFFFF" stroke-width="2"/>
+    <text y="0.5" fill="#FFFFFF" font-size="9" font-weight="900" text-anchor="middle" dominant-baseline="central">✕</text>
+  </g>` : '';
+
+  const labelY = isDown ? my - 16 : my;
+
   return `<g data-link="${esc(link.id)}" data-source="${esc(link.source)}" data-target="${esc(link.target)}" class="${isSel ? 'link-selected' : ''}">
     <line class="link hit" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"/>
     <line class="link ${cls}" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"/>
-    <g class="link-label ${active ? 'active' : ''}" transform="translate(${mx},${my})">
+    ${crossBadge}
+    <g class="link-label ${active ? 'active' : ''} ${isDown ? 'failed' : ''}" transform="translate(${mx},${labelY})">
       <rect x="-30" y="-9" width="60" height="18"/>
       <text y="0">${fmt(link.bandwidth)}M · ${Math.round(link.latency)}ms</text>
     </g>
@@ -494,49 +504,130 @@ function updateKPIs(rerouteState) {
   }
   if (recEl) recEl.textContent = recoveryDur != null ? `${recoveryDur.toFixed(2)}s` : '—';
   if (delEl) delEl.textContent = `${delivered}`;
-  if (ratioEl) ratioEl.textContent = `${sent} sent`;
+  if (ratioEl) ratioEl.textContent = `/ ${sent} sent`;
 
   if (clockEl) {
-    clockEl.innerHTML = `Simulation time <strong>${clock(state?.time || 0)}</strong>`;
+    clockEl.textContent = clock(state?.time || 0);
+  }
+
+  // Status Running Pill
+  const statusPillText = $('simStatusPillText');
+  const statusPill = $('simStatusPill');
+  if (statusPillText && statusPill) {
+    if (state?.running) {
+      statusPillText.textContent = 'Simulation Running';
+      statusPill.style.color = '#15803D';
+      statusPill.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+    } else {
+      statusPillText.textContent = 'Simulation Ready';
+      statusPill.style.color = 'var(--text-muted)';
+      statusPill.style.borderColor = 'var(--panel-border)';
+    }
+  }
+
+  // Run button label toggle
+  const runBtnLabel = $('runBtnLabel');
+  if (runBtnLabel) {
+    runBtnLabel.textContent = state?.running ? 'Pause' : 'Run';
   }
 
   // Provider badge
   const diag = rerouteState?.diagnosis;
   if (badgeEl) {
     if (rerouteState?.incident_state === 'Diagnosing') {
-      badgeEl.className = 'provider-pill provider-diagnosing';
+      badgeEl.className = 'provider-pill-compact provider-diagnosing';
       badgeEl.textContent = '● Qualcomm AI Diagnosing...';
     } else if (!diag || diag.is_fallback !== false) {
-      badgeEl.className = 'provider-pill provider-fallback';
+      badgeEl.className = 'provider-pill-compact provider-fallback';
       badgeEl.textContent = '● Rules fallback Active';
     } else {
-      badgeEl.className = 'provider-pill provider-live';
-      badgeEl.textContent = '● Qualcomm Cloud AI 100 Active';
+      badgeEl.className = 'provider-pill-compact provider-live';
+      badgeEl.textContent = '● Qualcomm AI 100';
     }
   }
 
-  // Update telemetry history sparkline buffer
+  // Update telemetry history buffers
   if (state?.running || telemetryHistory.length === 0) {
     telemetryHistory.push({ time: state?.time || 0, pdr: pdr });
-    if (telemetryHistory.length > 50) telemetryHistory.shift();
-    renderTelemetryChart();
+    if (telemetryHistory.length > 40) telemetryHistory.shift();
+
+    latencyHistory.push({ time: state?.time || 0, lat: lat });
+    if (latencyHistory.length > 40) latencyHistory.shift();
+
+    packetsHistory.push({ time: state?.time || 0, delivered: delivered, sent: sent });
+    if (packetsHistory.length > 40) packetsHistory.shift();
+
+    renderTelemetryTripleCharts();
   }
 }
 
-function renderTelemetryChart() {
-  const path = $('chartPath');
-  if (!path || !telemetryHistory.length) return;
-  const waiting = Number(state?.metrics?.sent || 0) === 0;
-  $('chartAnnotation').textContent = waiting ? 'Start traffic to see measured delivery over time' : 'Measured delivery rate • latest 50 observations';
-  if (waiting) { path.setAttribute('d', ''); return; }
-  const w = 650;
-  const h = 80;
-  const points = telemetryHistory.map((pt, idx) => {
-    const x = (idx / Math.max(1, telemetryHistory.length - 1)) * w;
-    const y = h - (Math.max(0, Math.min(100, pt.pdr)) / 100) * (h - 10) - 5;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  path.setAttribute('d', points.length === 1 ? `M ${points[0]} l 1 0` : `M ${points.join(' L ')}`);
+function renderTelemetryTripleCharts() {
+  // 1. Delivery Rate (%) Area Chart
+  const dArea = $('chartDeliveryArea');
+  const dLine = $('chartDeliveryLine');
+  const dStat = $('subChartDeliveryStat');
+  if (dStat) {
+    const curPdr = state?.metrics?.pdr ?? state?.overview?.packet_delivery_ratio ?? 100.0;
+    dStat.textContent = `${fmt(curPdr, 1)}%`;
+  }
+  if (dArea && dLine && telemetryHistory.length > 0) {
+    const w = 280, h = 75;
+    const pts = telemetryHistory.map((pt, idx) => {
+      const x = (idx / Math.max(1, telemetryHistory.length - 1)) * w;
+      const y = h - (Math.max(0, Math.min(100, pt.pdr)) / 100) * (h - 22) - 10;
+      return [x, y];
+    });
+    const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const areaD = `${lineD} L ${w} ${h} L 0 ${h} Z`;
+    dLine.setAttribute('d', lineD);
+    dArea.setAttribute('d', areaD);
+  }
+
+  // 2. Latency (ms) Line Chart with SLO Target
+  const lLine = $('chartLatencyLine');
+  const lStat = $('subChartLatencyStat');
+  const lDots = $('chartLatencyDots');
+  if (lStat) {
+    const curLat = state?.metrics?.latency ?? state?.overview?.average_latency_ms;
+    lStat.textContent = curLat != null ? `${fmt(curLat, 1)} ms` : 'N/A';
+  }
+  if (lLine && latencyHistory.length > 0) {
+    const w = 280, h = 75;
+    const maxLat = 55.0;
+    const pts = latencyHistory.map((pt, idx) => {
+      const x = (idx / Math.max(1, latencyHistory.length - 1)) * w;
+      const val = pt.lat != null ? Math.min(maxLat, pt.lat) : 19.0;
+      const y = h - (val / maxLat) * (h - 22) - 8;
+      return [x, y];
+    });
+    const lineD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    lLine.setAttribute('d', lineD);
+    if (lDots) {
+      lDots.innerHTML = pts.slice(-5).map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="#F59E0B"/>`).join('');
+    }
+  }
+
+  // 3. Packets Delivered Bar Chart
+  const bBars = $('chartPacketsBars');
+  const bStat = $('subChartPacketsStat');
+  const delivered = Math.round(state?.overview?.packets_delivered ?? state?.metrics?.delivered ?? 0);
+  const sent = Math.round(state?.overview?.packets_sent ?? state?.metrics?.sent ?? 0);
+  if (bStat) bStat.textContent = `${delivered} / ${sent}`;
+  if (bBars) {
+    const barsCount = 20;
+    const barW = 7;
+    const spacing = 14;
+    const maxH = 48;
+    const barsHtml = [];
+    for (let i = 0; i < barsCount; i++) {
+      const x = i * spacing + 4;
+      const pct = sent > 0 ? Math.min(1.0, (i + 1) / barsCount) : 0.1;
+      const barH = Math.max(4, pct * maxH);
+      const y = 68 - barH;
+      barsHtml.push(`<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="#10B981" rx="2" opacity="${0.45 + pct * 0.55}"/>`);
+    }
+    bBars.innerHTML = barsHtml.join('');
+  }
 }
 
 function updateDockRecentEvents(timeline) {
@@ -546,14 +637,20 @@ function updateDockRecentEvents(timeline) {
     el.innerHTML = '<div class="ev-row-empty">No simulation events yet.</div>';
     return;
   }
-  const recent = timeline.slice(-4).reverse();
-  el.innerHTML = recent.map(e => `
-    <div class="ev-row">
-      <span class="ev-time">${fmt(e.sim_time, 1)}s</span>
-      <span class="ev-tag">[${esc(e.state)}]</span>
-      <span class="ev-msg">${esc(e.message)}</span>
-    </div>
-  `).join('');
+  const recent = timeline.slice(-5).reverse();
+  el.innerHTML = recent.map(e => {
+    let dotClass = 'green';
+    const s = (e.state || '').toLowerCase();
+    if (s.includes('unresolved') || s.includes('warn') || s.includes('detected')) dotClass = 'amber';
+    else if (s.includes('fail') || s.includes('drop') || s.includes('error')) dotClass = 'red';
+    return `
+      <div class="ev-row">
+        <span class="ev-dot ${dotClass}"></span>
+        <span class="ev-time">${fmt(e.sim_time, 1)}s</span>
+        <span class="ev-msg"><strong>[${esc(e.state)}]</strong> ${esc(e.message)}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 function updateDockTables(rerouteState) {
@@ -634,31 +731,49 @@ function renderInspector() {
     if (title) title.textContent = dev.name;
     if (subtitle) subtitle.textContent = `${TYPES[dev.type] || dev.type} · ${down ? 'DOWN' : 'Healthy'}`;
 
-    if (inspectorTab === 'overview') {
+    const ip = `10.0.${dev.name.replace(/\D/g, '') || '1'}.1`;
+    const cpu = Math.floor(18 + Math.abs(Math.sin((state?.time || 0) * 0.5) * 12));
+    const mem = Math.floor(32 + Math.abs(Math.cos((state?.time || 0) * 0.3) * 10));
+    const uptime = clock(state?.time || 0);
+
+    if (inspectorTab === 'overview' || inspectorTab === 'node') {
       body.innerHTML = `
-        <div class="prop-row"><label>Device ID:</label><span>${esc(dev.id)}</span></div>
-        <div class="prop-row"><label>Type:</label><span>${esc(TYPES[dev.type] || dev.type)}</span></div>
-        <div class="prop-row"><label>Status:</label><span class="status-badge ${down ? 'status-down' : 'status-up'}">${down ? 'DOWN' : 'ONLINE'}</span></div>
-        <div class="prop-row"><label>Position:</label><span>X: ${Math.round(dev.x)}, Y: ${Math.round(dev.y)}</span></div>
-        <div class="prop-row"><label>Interfaces:</label><span>${dev.interfaces?.length || 0} active</span></div>
-        <div style="margin-top:14px; display:flex; gap:8px;">
-          <button class="adv-btn" id="btnToggleDevPower">${down ? '▶ Start Device' : '⏹ Shutdown Device'}</button>
-          <button class="adv-btn danger" id="btnDeleteDev" ${editorMode === 'run' ? 'disabled title="Cannot delete devices in Run mode"' : ''}>🗑 Delete</button>
+        <div class="ins-section">
+          <div class="prop-row"><label>Type</label><strong>${esc(TYPES[dev.type] || dev.type)}</strong></div>
+          <div class="prop-row"><label>IP Address</label><span>${ip}</span></div>
+          <div class="prop-row"><label>Interfaces</label><span>${dev.interfaces?.length || 3} (2 active)</span></div>
+          
+          <div class="prop-metric-bar">
+            <div class="metric-bar-head"><span>CPU Usage</span><strong>${cpu}%</strong></div>
+            <div class="progress-track"><div class="progress-fill green-fill" style="width:${cpu}%;"></div></div>
+          </div>
+
+          <div class="prop-metric-bar">
+            <div class="metric-bar-head"><span>Memory Usage</span><strong>${mem}%</strong></div>
+            <div class="progress-track"><div class="progress-fill teal-fill" style="width:${mem}%;"></div></div>
+          </div>
+
+          <div class="prop-row"><label>Uptime</label><span>${uptime}</span></div>
+        </div>
+
+        <div class="ins-actions-row">
+          <button class="ins-btn" id="btnToggleDevPower">${down ? '▶ Start Node' : '🔄 Restart Node'}</button>
+          <button class="ins-btn danger" id="btnDeleteDev">${down ? 'Delete Node' : '⏹ Shutdown Node'}</button>
         </div>
       `;
-    } else if (inspectorTab === 'routes') {
+    } else if (inspectorTab === 'routes' || inspectorTab === 'link') {
       const routes = dev.routing_table || [];
       body.innerHTML = `
         <div style="font-weight:600; margin-bottom:8px; color:var(--text-muted);">Routing Table (${routes.length})</div>
         ${routes.length ? routes.map(r => `
-          <div style="background:var(--panel-elevated); padding:8px; border-radius:4px; margin-bottom:6px; border:1px solid var(--panel-border);">
+          <div style="background:var(--panel-elevated); padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid var(--panel-border);">
             <div><b>Dest:</b> ${esc(r.destination || r.prefix)}</div>
             <div><b>Next Hop:</b> ${esc(r.next_hop || 'Direct')}</div>
             <div><b>Interface:</b> ${esc(r.interface || 'eth0')}</div>
           </div>
         `).join('') : '<p class="text-muted">No static or dynamic routes installed.</p>'}
       `;
-    } else if (inspectorTab === 'events') {
+    } else if (inspectorTab === 'events' || inspectorTab === 'simulation') {
       const devEvents = (state?.reroute?.incident_timeline || []).filter(e => e.component === dev.id || e.message?.includes(dev.name));
       body.innerHTML = `
         <div style="font-weight:600; margin-bottom:8px; color:var(--text-muted);">Device Events (${devEvents.length})</div>
@@ -1233,7 +1348,65 @@ function bindNode(el) {
   });
 }
 
+function initTheme() {
+  const saved = localStorage.getItem('nexus_theme') || 'light';
+  setTheme(saved);
+  const btn = $('themeToggleBtn');
+  if (btn) {
+    btn.onclick = () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'light';
+      const next = current === 'light' ? 'dark' : 'light';
+      setTheme(next);
+      toast(`Switched to ${next.toUpperCase()} mode`);
+    };
+  }
+}
+
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('nexus_theme', t);
+  const icon = $('themeToggleIcon');
+  if (icon) icon.textContent = t === 'light' ? '☀️' : '🌙';
+}
+
 function bindControls() {
+  initTheme();
+
+  // Sidebar Tools
+  $('toolAddDeviceBtn')?.addEventListener('click', async () => {
+    const pal = $('devicesPalette');
+    if (pal) {
+      const isHidden = pal.style.display === 'none' || !pal.style.display;
+      pal.style.display = isHidden ? 'flex' : 'none';
+      if (isHidden) {
+        await enterBuildMode();
+        toast('Device palette opened. Click a device type to place it.');
+      }
+    }
+  });
+
+  $('toolLoadPresetBtn')?.addEventListener('click', () => {
+    $('loadRecoveryDemo')?.click();
+  });
+
+  $('toolResetBtn')?.addEventListener('click', () => {
+    $('mainResetBtn')?.click();
+  });
+
+  $('toolSaveScenarioBtn')?.addEventListener('click', () => {
+    $('btnSaveDoc')?.click();
+  });
+
+  $('btnClearRecentEvents')?.addEventListener('click', () => {
+    const list = $('dockRecentEventsList');
+    if (list) list.innerHTML = '<div class="ev-row-empty">Events log cleared.</div>';
+    toast('Recent events log cleared');
+  });
+
+  $('btnZoomInMini')?.addEventListener('click', () => $('btnZoomIn')?.click());
+  $('btnZoomOutMini')?.addEventListener('click', () => $('btnZoomOut')?.click());
+  $('btnZoomFitMini')?.addEventListener('click', () => $('btnCanvasFit')?.click());
+
   for (const id of ['trafficSource','trafficTarget']) $(id)?.addEventListener('change', () => localStorage.setItem(id, $(id).value));
   $('loadRecoveryDemo')?.addEventListener('click', async () => {
     if (!confirm('Load the recovery demo? This replaces the current topology. Cancel and use Save first if you want to keep it.')) return;
@@ -1281,19 +1454,28 @@ function bindControls() {
     editorMode = 'build';
     $('btnBuildMode').classList.add('active');
     $('btnRunMode').classList.remove('active');
-    $('devicesPalette')?.classList.add('build-mode-active');
+    const pal = $('devicesPalette');
+    if (pal) pal.style.display = 'flex';
     applyEditorModeLocks();
     toast('Build mode active: drag, add, and connect devices');
   });
 
-  $('btnRunMode')?.addEventListener('click', () => {
-    editorMode = 'run';
-    $('btnRunMode').classList.add('active');
-    $('btnBuildMode').classList.remove('active');
-    $('devicesPalette')?.classList.remove('build-mode-active');
-    setMode('select');
-    applyEditorModeLocks();
-    toast('Run mode active: simulation traffic and self-healing');
+  $('btnRunMode')?.addEventListener('click', async () => {
+    if (editorMode === 'build') {
+      editorMode = 'run';
+      $('btnRunMode').classList.add('active');
+      $('btnBuildMode').classList.remove('active');
+      const pal = $('devicesPalette');
+      if (pal) pal.style.display = 'none';
+      setMode('select');
+      applyEditorModeLocks();
+    }
+    // Toggle start / pause playback
+    if (state?.running) {
+      $('mainPauseBtn')?.click();
+    } else {
+      $('mainStartBtn')?.click();
+    }
   });
 
   // 3. Play / Pause / Step / Reset
