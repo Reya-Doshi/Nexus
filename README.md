@@ -1,17 +1,16 @@
 <div align="center">
 
-# 🌐 NEXUS: Autonomous Self-Healing Network Simulator
-### Closed-Loop Telemetry Anomaly Detection, Qualcomm Cloud AI 100 Diagnosis & Line-Rate Snapdragon NPU Hardware Acceleration
+# 🌐 NEXUS: AI-Assisted Self-Healing Network Simulator
+### Closed-Loop Telemetry Anomaly Detection, Qualcomm Cloud AI Reasoning & Verified Dynamic Rerouting
 
-[![Track](https://img.shields.io/badge/Infosys%20Ignite-NC--04%3A%20Self--Healing%20Network%20Simulator-007ACC?style=for-the-badge&logo=target)](https://aihub.qualcomm.com)
-[![Qualcomm Cloud AI](https://img.shields.io/badge/Qualcomm-Cloud%20AI%20100%20(Cirrascale)-EA2839?style=for-the-badge&logo=qualcomm)](https://aisuite.cirrascale.com)
-[![Snapdragon NPU](https://img.shields.io/badge/Snapdragon-X%20Elite%20NPU%200.64ms-32A852?style=for-the-badge&logo=speedtest)](https://workbench.aihub.qualcomm.com/jobs/jglw1r28p/)
-[![Status](https://img.shields.io/badge/Status-Fully%20Validated%20Prototype-success?style=for-the-badge)]()
+[![Track](https://img.shields.io/badge/Infosys%20Ignite-NC--04%3A%20Self--Healing%20Network%20Simulator-007ACC?style=for-the-badge)](https://aihub.qualcomm.com)
+[![Qualcomm Cloud AI](https://img.shields.io/badge/Qualcomm-Cloud%20AI%20100%20(Cirrascale)-EA2839?style=for-the-badge)](https://aisuite.cirrascale.com)
+[![Status](https://img.shields.io/badge/Status-Verified%20Prototype-success?style=for-the-badge)]()
 
 **Team Setu** | *Bhoj Reddy Engineering College for Women, Hyderabad*  
 **Infosys Ignite ENG NEXT 2026 Hack-AI-Thon**
 
-[Live Hardware Job Verification](https://workbench.aihub.qualcomm.com/jobs/jglw1r28p/) • [System Architecture](#-dual-tier-qualcomm-ai-architecture) • [Demo Walkthrough](#-3-step-prototype-demo-script) • [Deployment Guide](#-quick-start)
+[System Architecture](#-system-architecture) • [Self-Healing Lifecycle](#-the-closed-loop-self-healing-lifecycle) • [Demo Walkthrough](#-demo-walkthrough) • [Acknowledgements](#-acknowledgements--upstream-credit)
 
 ---
 
@@ -19,211 +18,180 @@
 
 ## 📌 Executive Summary
 
-Modern enterprise and carrier backbones face cascading downtime when unexpected fiber degradation, buffer bloat, or link failures occur. Traditional Network Operations Centers (NOCs) are purely reactive: alerts fire **after** thousands of users experience dropped sessions, and manual root-cause forensic analysis can take minutes to hours.
+**NEXUS** is an autonomous, closed-loop network simulation and self-healing platform built for **Problem Statement NC-04 (Self-Healing Network Simulator)**. It combines a discrete-event packet simulation engine with hardware-accelerated **Qualcomm Cloud AI 100** inference (running Meta Llama-3.1-8B via Cirrascale) to continuously monitor network health, detect link degradation, diagnose root causes from observed telemetry, dynamically reroute traffic, and strictly verify recovery before declaring success.
 
-**NEXUS** directly addresses **Problem Statement NC-04 (Self-Healing Network Simulator)** by realizing a fully autonomous **Detect ➔ Diagnose ➔ Heal ➔ Verify** closed loop. Built on a discrete-event network telemetry engine, NEXUS combines:
-1. **Cloud Reasoning Tier:** Deep cognitive root-cause analysis powered by **Meta Llama-3.1-8B** on **Qualcomm Cloud AI 100** enterprise server silicon via Cirrascale.
-2. **Edge Hardware Acceleration Tier:** Sub-millisecond line-rate anomaly detection compiled with **Qualcomm Neural Network (QNN)** SDK and executed on a physical **Snapdragon X Elite NPU** via Qualcomm AI Hub.
-3. **Deterministic Safety Guardrails:** NetworkX dynamic graph solver guaranteeing loop-free Dijkstra bypass routes, verified by 5-packet closed-loop delivery certification.
-4. **Instant NOC Push Alerts:** Live asynchronous Telegram push notifications dispatching immediate forensics to on-call network engineers.
-
----
-
-## ⚡ The Qualcomm Silicon Advantage: Verified Benchmarks
-
-NEXUS leverages Qualcomm's full spectrum of enterprise cloud accelerators and edge silicon:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 QUALCOMM SILICON TIERS                                 │
-├───────────────────────────────────────────┬────────────────────────────────────────────┤
-│ ☁️ ENTERPRISE CLOUD TIER                   │ 📱 EDGE ACCELERATION TIER                   │
-│ Qualcomm Cloud AI 100 (Cirrascale)        │ Qualcomm Snapdragon X Elite CRD (QNN HTP)  │
-├───────────────────────────────────────────┼────────────────────────────────────────────┤
-│ • Workload: Llama-3.1-8B & Llama-3.3-70B  │ • Workload: Line-Rate Anomaly Detector     │
-│ • Role: Multi-variate Root Cause Analysis │ • Role: On-Switch Anomaly Inference        │
-│ • Production Tokens Tested: 206,726       │ • Hardware Latency: 0.64 ms (641 µs)       │
-│ • Total Cloud Cost: $0.029 (Ultra-low)    │ • Max Throughput: 1,560 Inferences/sec     │
-│ • Status: 200 OK Live Authenticated API   │ • Qualcomm Hub Verified Job: jglw1r28p     │
-└───────────────────────────────────────────┴────────────────────────────────────────────┘
-```
-
-> 🔗 **Public Qualcomm Workbench Verification:**  
-> Our Snapdragon hardware run is publicly certified and inspectable at:  
-> 👉 **[https://workbench.aihub.qualcomm.com/jobs/jglw1r28p/](https://workbench.aihub.qualcomm.com/jobs/jglw1r28p/)**
+### Key Capabilities
+1. **Early Telemetry Anomaly Detection:** Monitors rolling packet delivery rate (PDR), latency trends, per-link queue utilization, and heartbeat probes to detect emerging congestion before catastrophic link collapse.
+2. **Qualcomm Cloud AI 100 Diagnosis:** Submits structured telemetry snapshots to **Llama-3.1-8B on Qualcomm Cloud AI 100** (Cirrascale) to infer the root cause (e.g., `LINK_FAILURE`, `HIGH_CONGESTION`) and recommend an allowed remediation action (`REROUTE_TRAFFIC`, `BYPASS_COMPONENT`).
+3. **Deterministic Safety Guardrails:** Network topology updates are strictly bounded by NetworkX graph algorithms. AI suggestions are corroborated against observed telemetry; uncorroborated responses or network timeouts fall back safely to deterministic rules.
+4. **Closed-Loop Verification:** Recovery is never assumed. NEXUS requires **5 consecutive packets** to be successfully delivered on the replacement route within target SLO latency before transitioning the incident to `Recovered`. If no alternative path exists, the system honestly reports an `Unresolved` state.
+5. **Instant Push Notification:** An asynchronous Telegram alert worker notifies on-call network engineers with complete incident forensics.
 
 ---
 
-## 🏛️ Dual-Tier Qualcomm AI Architecture
+## 🏛️ System Architecture
 
 ```mermaid
 flowchart TB
-    subgraph UI ["🖥️ Presentation & Operations Layer"]
-        DASH["Interactive Topology Web Dashboard<br/>(Visual Packet Flows • Live Telemetry Charts • Fault Injection)"]
-        TG["Automated Telegram NOC Bot<br/>(Incident Forensics • Reroute Confirmation)"]
+    subgraph UI ["🖥️ Presentation Layer (Vanilla JS / SVG Canvas)"]
+        DASH["Interactive Network Topology Dashboard<br/>(Live Packet Animation • Real-Time Telemetry Cards • Step Ribbon)"]
+        COMP["A/B Comparative Benchmark Runner<br/>(Repeatable Seed Evaluation: Auto-Heal ON vs OFF)"]
+        TG["Optional Telegram Alert Worker<br/>(Pushed Incident Forensics)"]
     end
 
-    subgraph ENGINE ["⚙️ NEXUS Simulation Core (Python 3.12 / NetworkX)"]
-        SIM["Discrete-Event Packet Engine<br/>(Synthetic Flows • RTT • Jitter • Queue Depth)"]
-        GUARD["Deterministic Safety Guardrail Engine<br/>(Dynamic Dijkstra Topology Graph • 5-Packet Delivery Verifier)"]
+    subgraph ENGINE ["⚙️ Python Core (LabSession & RerouteEngine)"]
+        SIM["Discrete-Event Packet Engine<br/>(Synthetic Traffic • Latency • Loss • Jitter)"]
+        DET["Explainable Telemetry Detector<br/>(Rolling Window PDR • Threshold Rules)"]
+        GUARD["Deterministic Safety Guardrail Engine<br/>(NetworkX Graph • Dynamic Dijkstra • 5-Packet Verifier)"]
     end
 
-    subgraph QUALCOMM_EDGE ["📱 Edge Acceleration Tier (Qualcomm AI Hub)"]
-        NPU["Snapdragon X Elite Hexagon NPU<br/>QNN DLC Runtime • 0.64 ms Latency • 100% HTP Execution"]
+    subgraph AI ["☁️ Qualcomm Cloud AI Tier (Cirrascale)"]
+        QCLOUD["Qualcomm Cloud AI 100<br/>Meta Llama-3.1-8B Inference<br/>Asynchronous Epoch-Based Diagnosis"]
     end
 
-    subgraph QUALCOMM_CLOUD ["☁️ Enterprise Cloud Tier (Cirrascale AI Suite)"]
-        QCLOUD["Qualcomm Cloud AI 100 Accelerator<br/>Llama-3.1-8B Inference • Telemetry Root-Cause Reasoner"]
-    end
-
-    DASH <-->|"REST API / WebSockets"| SIM
-    SIM -->|"Spatial-Temporal Telemetry Grid"| NPU
-    NPU -->|"Line-Rate Anomaly Trigger"| SIM
-    SIM -->|"Multi-Metric Incident Context"| QCLOUD
-    QCLOUD -->|"Diagnosed Cause & JSON Remediation Policy"| GUARD
-    GUARD -->|"Topology Graph Cost Update"| SIM
-    GUARD -->|"Incident Push Webhook"| TG
+    DASH <-->|"HTTP REST API / State Polling"| SIM
+    SIM -->|"Rolling Telemetry Stream"| DET
+    DET -->|"Anomaly Trigger"| AI
+    AI -->|"Diagnosed Cause & Action"| GUARD
+    GUARD -->|"Corroborated Dijkstra Bypass"| SIM
+    GUARD -->|"Incident Forensic Webhook"| TG
 ```
 
 ---
 
-## 🔄 The 5-Stage Closed-Loop Self-Healing Lifecycle
+## 🔄 The Closed-Loop Self-Healing Lifecycle
 
 ```mermaid
 flowchart LR
-    S1["1. DETECT<br/>Continuous Telemetry<br/>Flags Jitter/RTT Anomaly"]
-    S2["2. ACCELERATE<br/>Snapdragon NPU<br/>0.64ms Edge Classification"]
-    S3["3. DIAGNOSE<br/>Qualcomm Cloud AI 100<br/>Llama-3.1 Root Cause Engine"]
-    S4["4. REROUTE<br/>Dijkstra Solver<br/>Calculates Dynamic Bypass"]
-    S5["5. VERIFY<br/>Closed-Loop Proof<br/>5 Consecutive Deliveries"]
+    S1["1. MONITOR<br/>Continuous Telemetry<br/>RTT, PDR & Heartbeats"]
+    S2["2. DETECT<br/>Telemetry Anomaly<br/>Flags Degradation"]
+    S3["3. DIAGNOSE<br/>Qualcomm Cloud AI 100<br/>Llama-3.1 Root Cause"]
+    S4["4. REROUTE<br/>Dijkstra Solver<br/>Dynamic Path Bypass"]
+    S5["5. VERIFY<br/>Closed-Loop Proof<br/>5 Delivered Packets"]
 
     S1 --> S2 --> S3 --> S4 --> S5 -.-> S1
 ```
 
-1. **Detect (Continuous Telemetry Monitoring):** Real-time monitoring of Round Trip Time (RTT), jitter variance, throughput saturation, and heartbeat probes across every topology node.
-2. **Accelerate (Edge NPU Telemetry Classifier):** Telemetry time-windows are converted into spatial-temporal feature grids and classified directly on Qualcomm Hexagon NPU silicon in **0.64 ms**, avoiding cloud round-trip delay.
-3. **Diagnose (Qualcomm Cloud AI 100 Cognitive Engine):** Detailed telemetry context is evaluated by **Llama-3.1-8B on Qualcomm Cloud AI 100**, isolating physical fiber breakage from transient congestion and generating structured remediation policies.
-4. **Reroute (Deterministic Safety Guardrails):** The dynamic graph optimizer inflates the cost of degraded edges and computes safe loop-free bypass corridors (e.g., `Client ➔ R1 ➔ R3 ➔ R5 ➔ R6 ➔ Server`).
-5. **Verify (Closed-Loop SLA Certification):** Recovery is never assumed. The engine mandates that **5 consecutive packets** must traverse the new route with end-to-end latency below primary SLO ($\le 30\text{ ms}$) before certifying the incident as resolved.
+1. **Monitor (Healthy):** Packets traverse the primary forwarding corridor (`Client ➔ R1 ➔ R2 ➔ R4 ➔ R6 ➔ Server`). Telemetry is aggregated across rolling windows.
+2. **Detect:** The detector flags link loss, persistent latency increases, or missed heartbeats (e.g., fault injected on `R2-R4`).
+3. **Diagnose:** Telemetry context is formatted and dispatched asynchronously to **Qualcomm Cloud AI 100** running Llama-3.1-8B. The model diagnoses the failure mode. The backend corroborates the diagnosis against measured link telemetry to prevent unverified attributions.
+4. **Reroute:** The healing manager applies dynamic Dijkstra graph reweighting, identifying the lowest-cost alternate bypass (`Client ➔ R1 ➔ R3 ➔ R5 ➔ R6 ➔ Server`) and updating forwarding tables.
+5. **Verify:** The engine tracks packets on the bypass corridor. Only after **5 consecutive packets** are delivered within SLO targets is the incident certified as resolved.
 
 ---
 
-## 🎬 3-Step Prototype Demo Script (3-Minute Hackathon Pitch)
+## 🎬 Demo Walkthrough
 
-```
-[0:00 - 0:45] ──► SPEAKER 1 (Pranathi): The Problem & Real-World Network Outage Cost
-[0:45 - 1:30] ──► SPEAKER 2 (Swathi): The Closed-Loop Architecture & Qualcomm Cloud AI
-[1:30 - 3:00] ──► SPEAKER 3 (Reya - Lead): Live Prototype Rerouting + Snapdragon NPU Flex
-```
+### 1. Baseline Operation
+* Launch the simulator (`http://localhost:8000`).
+* Verify that the header displays the active provider badge: `● Qualcomm AI 100`.
+* Observe synthetic traffic flowing along the primary corridor `R1 ➔ R2 ➔ R4 ➔ R6` with latency well below the $30\text{ ms}$ SLO target.
 
-### 1. Normal State (0:00 - 0:15)
-* Open the **NEXUS Dashboard** (`http://localhost:8000`). Show the 6-router topology (*R1 to R6*). Traffic flows along the primary trunk (*R1 ➔ R2 ➔ R4 ➔ R6*). All link monitors glow healthy green.
+### 2. Inject Fault & Observe Recovery
+* Click **`⚡ Inject Fault`** (e.g., *Sudden Link Failure on R2-R4* or *Preventive Congestion*).
+* The link status turns degraded/failed.
+* Telemetry triggers asynchronous diagnosis with Qualcomm Cloud AI 100.
+* Watch the status ribbon advance: `Detected ➔ Diagnosing ➔ Rerouting ➔ Verifying ➔ Recovered`.
+* The visual topology highlights the new bypass route (`R1 ➔ R3 ➔ R5 ➔ R6`).
+* After 5 verification packets pass successfully, the impact card updates with observed packet counts, delivery restoration status, and SLA compliance.
 
-### 2. Inject Fault & AI Diagnosis (0:15 - 0:45)
-* Click **`⚡ Inject Fault`** on the core link *R2-R4*.
-* The link turns **red**. Jitter and latency surge.
-* In $< 300\text{ ms}$, **Qualcomm Cloud AI 100** returns the root-cause analysis:
-  ```json
-  {
-    "root_cause": "HARDWARE_LINK_FAILURE",
-    "affected_component": "Link_R2_R4",
-    "recommended_action": "DIVERT_TRAFFIC_TO_SECONDARY_SPINE"
-  }
-  ```
-
-### 3. Visual Recovery & Hardware Benchmark Flex (0:45 - 1:30)
-* The dynamic Dijkstra engine re-weights the graph. Green packets instantly reroute via the lower spine: `R1 ➔ R3 ➔ R5 ➔ R6`. Zero session drops!
-* Mobile phone buzzes with the instant **Telegram Incident Notification**.
-* Switch tab to **Qualcomm AI Hub Workbench (Job `jglw1r28p`)**: Show the **Snapdragon X Elite CRD** hardware verification executing in **0.64 milliseconds** with 100% NPU operator delegation!
+### 3. A/B Repeatable Benchmark
+* Switch to the **Compare** tab to execute a controlled run comparing **Auto-Heal ON** versus **Auto-Heal OFF** using identical workloads and random seeds.
 
 ---
 
-## 💰 Economic Viability & Inference Efficiency
+## 🔬 Hardware Exploration: Edge Silicon Feasibility
 
-In production cloud environments, running continuous multi-modal LLM reasoning on traditional GPU instances is cost-prohibitive. Qualcomm Cloud AI 100 delivers unmatched inference density:
+In addition to our cloud deployment on Qualcomm Cloud AI 100, we explored the feasibility of edge hardware execution using the **Qualcomm AI Hub SDK**:
 
-* **Total Live Tokens Processed:** `206,726 tokens`
-* **Models Tested:** `Llama-3.1-8B` (115,608 tokens) + `Llama-3.3-70B` (91,118 tokens)
-* **Total Expenditure:** **`$0.029` (less than 3 cents!)**
-* **Cost Per Incident Remediated:** $< \$0.0001$
+* **Target Device:** Physical Snapdragon X Elite Compute Reference Device (CRD).
+* **Target Runtime:** Qualcomm Neural Network (QNN) runtime targeting the Hexagon Tensor Processor (HTP).
+* **Profiling Benchmark:** A compiled vision backbone model achieved a hardware execution latency of **0.64 ms** (641 µs) with 100% NPU operator delegation.
+* **Scope Note:** This benchmark serves as a separate hardware exploration to demonstrate Qualcomm NPU line-rate inference capabilities; live telemetry diagnosis in the current NEXUS simulator is served via the Qualcomm Cloud AI 100 API.
+* **Verified Qualcomm Workbench Job:** [Job jglw1r28p](https://workbench.aihub.qualcomm.com/jobs/jglw1r28p/)
 
-This validates that continuous AI-driven network telemetry monitoring is commercially viable for enterprise campus and ISP deployment.
+---
+
+## 🛠️ Tech Stack
+
+* **Simulation Core:** Python 3.12, NetworkX (topology graphs), discrete-event packet scheduler
+* **Backend Serving:** Python standard library HTTP server (`http.server`) with REST endpoint routing
+* **Cognitive Diagnosis:** Qualcomm Cloud AI 100 (Cirrascale AI Suite API v2), Meta Llama-3.1-8B
+* **Frontend:** Vanilla JavaScript (ES6+), SVG Canvas rendering, CSS Grid & Flexbox
+* **Verification & Testing:** Pytest, Node.js Playwright test scripts (`test_nexus_release.cjs`)
+* **Alerting:** Python Telegram Bot API worker
 
 ---
 
 ## 👥 Team Information (Team Setu)
 
-| Team Member | Engineering Role | Core Focus Area |
-| :--- | :--- | :--- |
-| **Reya Doshi** | **Team Lead & Silicon Architect** | Qualcomm AI Hub SDK, QNN DLC compilation, Snapdragon X Elite NPU validation (0.64 ms), end-to-end prototype integration |
-| **D. Swathi** | **Backend & Cloud AI Engineer** | FastAPI microservices, Cirrascale Qualcomm Cloud AI 100 API integration, dynamic graph solver, Telegram notification webhook |
-| **Amula Pranathi** | **Telemetry & Data Specialist** | Telemetry feature formulation (RTT, jitter, queue saturation), synthetic fault injection scenarios, early anomaly detection criteria |
-
 * **Institution:** Bhoj Reddy Engineering College for Women, Hyderabad  
 * **Event:** Infosys Ignite ENG NEXT 2026 Hack-AI-Thon  
-* **Track:** Problem Statement NC-04: Self-Healing Network Simulator
+* **Track:** Problem Statement NC-04: Self-Healing Network Simulator  
+* **Members:**
+  * **Reya Doshi** (Team Lead)
+  * **D. Swathi**
+  * **Amula Pranathi**
 
 ---
 
-## 🚀 Quick Start & Running Locally
+## 🙏 Acknowledgements & Upstream Credit
 
-### 1. Clone the Repository
+NEXUS builds upon and extends the educational discrete-event packet simulation foundation of [NetAdapt](https://github.com/akashgoudsidduluri/adaptive-self-healing-network-routing) by Akash Goud Sidduluri. 
+
+Our core contributions and additions for **Infosys Ignite Hack-AI-Thon NC-04** include:
+1. Integration with **Qualcomm Cloud AI 100** (Cirrascale v2 API) running Llama-3.1-8B for asynchronous telemetry root-cause diagnosis.
+2. A deterministic safety guardrail and corroboration pipeline preventing LLM hallucination in network routing.
+3. Closed-loop 5-packet rolling delivery verification against explicit SLO latency targets.
+4. Enhanced interactive SVG topology interface with dynamic fault injection, step ribbon, and A/B comparison runner.
+5. Hardware feasibility profiling on Snapdragon X Elite NPU via Qualcomm AI Hub.
+6. Automated Telegram alerting pipeline for on-call NOC engineers.
+
+---
+
+## 💻 Quick Start & Running Locally
+
+### 1. Clone & Activate Environment
 ```bash
 git clone https://github.com/Reya-Doshi/Nexus.git
 cd Nexus
-```
-
-### 2. Configure Virtual Environment
-```bash
 python -m venv .venv
-.\.venv\Scripts\activate       # Windows PowerShell
-# source .venv/bin/activate    # Linux / macOS
+.\.venv\Scripts\activate   # Windows
+# source .venv/bin/activate # Linux / macOS
 ```
 
-### 3. Install Dependencies
+### 2. Install Dependencies
 ```bash
 pip install -r python-tested-requirements.txt
-pip install qai-hub python-docx
 ```
 
-### 4. Set Environment Credentials
+### 3. Configure Qualcomm Cloud AI Credentials
 Create a `.env` file in the project root:
 ```env
-# Qualcomm Cloud AI 100 / Cirrascale AI Inference Suite
 QUALCOMM_AI_ENDPOINT=https://aisuite.cirrascale.com/apis/v2
 QUALCOMM_AI_KEY=your_qualcomm_api_key_here
 QUALCOMM_AI_MODEL=Llama-3.1-8B
 
-# Telegram Incident Notification Configuration
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
+# Optional Telegram notifications
+TELEGRAM_ENABLED=false
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
+*(If credentials are not supplied or network connectivity is unavailable, the system automatically falls back to deterministic rule-based diagnosis).*
 
-### 5. Launch the NEXUS Platform
+### 4. Launch Application
 ```bash
 python -m netadapt.lab_server --port 8000
 ```
-Open your browser and navigate to:  
-👉 **`http://localhost:8000/`**
+Open your browser at: **`http://localhost:8000/`**
 
----
-
-## 🧪 Automated Testing & Verification Suite
-
-Validate packet simulation integrity, Dijkstra path convergence, detection heuristics, and closed-loop verification:
+### 5. Run Verification Tests
 ```bash
 pytest netadapt/test_reroute.py -v
-```
-
-To run connection smoke checks against Qualcomm Cloud AI 100:
-```bash
-python test_qualcomm_conn.py
 ```
 
 ---
 
 <div align="center">
-<strong>Engineered with ❤️ by Team Setu for Infosys Ignite ENG NEXT 2026</strong><br/>
-<em>Accelerated on Qualcomm Cloud AI 100 & Snapdragon X Elite Silicon</em>
+<strong>Engineered by Team Setu for Infosys Ignite ENG NEXT 2026</strong>
 </div>

@@ -1,0 +1,23 @@
+const {chromium}=require('playwright');const assert=require('node:assert/strict');
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:1440,height:1000}});p.on('dialog',d=>d.accept());const errors=[];p.on('pageerror',e=>errors.push(e.message));
+try {
+ await p.goto('http://127.0.0.1:8020');await p.waitForFunction(()=>state?.devices?.length>0);await p.locator('#loadRecoveryDemo').click();await p.waitForFunction(()=>state.devices.length===8 && !state.running);await p.locator('#btnBuildMode').click();
+ await p.locator('#homeConnectBtn').click();await p.waitForFunction(()=>mode==='connect');assert.equal(await p.locator('#btnToolSelect').evaluate(e=>e.classList.contains('active')),false);
+ await p.keyboard.press('Escape');await p.waitForFunction(()=>mode==='select');
+ await p.locator('#btnToolPan').click();assert.equal(await p.locator('#homeConnectBtn').evaluate(e=>e.classList.contains('active')),false);
+ await p.locator('#homeDeleteBtn').click();await p.waitForFunction(()=>mode==='delete');assert.equal(await p.locator('#btnToolPan').evaluate(e=>e.classList.contains('active')),false);await p.locator('#btnToolSelect').click();
+ await p.locator('#btnZoomIn').click();
+ const node=p.locator('.node[data-id="R3"]');await node.scrollIntoViewIfNeeded();
+ const before=await p.evaluate(()=>({x:state.devices.find(d=>d.id==='R3').x,y:state.devices.find(d=>d.id==='R3').y,scale:canvas.getScreenCTM().a*zoom}));
+ const box=await node.locator('.device-body').boundingBox();await p.mouse.move(box.x+box.width/2,box.y+box.height/2);await p.mouse.down();await p.mouse.move(box.x+box.width/2+30,box.y+box.height/2+20,{steps:5});await p.mouse.up();
+ await p.waitForFunction(x=>state.devices.find(d=>d.id==='R3').x!==x,before.x);
+ const after=await p.evaluate(()=>state.devices.find(d=>d.id==='R3'));assert(Math.abs(after.x-before.x-30/before.scale)<2);assert(Math.abs(after.y-before.y-20/before.scale)<2);
+ console.log('PASS mutually exclusive tools, Escape cancellation and drag coordinates at zoom');
+ await p.evaluate(async()=>{await api('add_device',{type:'router',name:'R7',x:550,y:80});await api('add_link',{source:'Client',target:'R7',latency:5});await api('add_link',{source:'R7',target:'R4',latency:5});await api('configure_link',{source:'R2',target:'R4',values:{status:'DOWN'}});});
+ await p.locator('#btnRunMode').click();await p.waitForFunction(()=>state.reroute.incident_state==='Recovered',null,{timeout:30000});
+ assert.deepEqual(await p.evaluate(()=>state.reroute.current_route),['Client','R7','R4','R6','Server']);
+ assert.match(await p.locator('#recoveryRoute').innerText(),/R7/);
+ assert.equal(await p.locator('[data-source="R2"][data-target="R4"] .link.active').count(),0);
+ await p.locator('#btnRunMode').click();await p.waitForFunction(()=>!state.running);
+ console.log('PASS custom R7 bypass, actual green route and verified recovery');assert.deepEqual(errors,[]);
+}finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});
