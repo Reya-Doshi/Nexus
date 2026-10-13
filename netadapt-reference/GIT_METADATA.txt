@@ -1,4 +1,0 @@
-Repository: https://github.com/akashgoudsidduluri/adaptive-self-healing-network-routing.git
-Commit: 5125a31e0499bee4a8dc44362ffe4b1f3b491b89
-Date: 2026-10-12
-Description: Pristine comparison baseline tested and verified in RESULTS.md
