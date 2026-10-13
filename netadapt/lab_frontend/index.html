@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NEXUS — AI-Assisted Network Recovery</title>
-  <link rel="stylesheet" href="/styles.css?v=release-4" />
+  <link rel="stylesheet" href="/styles.css?v=release-5" />
 </head>
 <body>
   <div id="app" class="nexus-app">
@@ -60,6 +60,10 @@
         </button>
       </nav>
 
+      <div class="sidebar-file-tools">
+        <button id="saveTopologyBtn" class="ctrl-btn" title="Download your topology as JSON">Save network</button>
+        <button id="loadTopologyBtn" class="ctrl-btn" title="Import a saved topology">Load network</button>
+      </div>
       <div class="sidebar-footer">
         <div class="sandbox-badge">
           <div class="sandbox-cube-icon">🟩</div>
@@ -75,6 +79,7 @@
     <div class="main-viewport">
       <!-- 1. SIMULATOR PAGE -->
       <section id="pageSimulator" class="nexus-page active-page">
+        <div class="demo-guide" role="note"><button id="startPreventiveDemo" class="primary-play-btn">▶ Prevent impact demo</button><button id="focusDemoBtn" class="ctrl-btn" aria-pressed="false">Focus view</button><strong>Your demo in 3 steps</strong><span>1 · Run traffic</span><span>2 · Inject a fault</span><span>3 · Watch diagnosis, rerouting and verified recovery</span></div>
         <!-- Modern Top Toolbar -->
         <header class="page-topbar">
           <div class="topbar-left">
@@ -118,7 +123,7 @@
               <label for="scenarioSelect">Scenario</label>
               <select id="scenarioSelect" class="scenario-select">
                 <option value="sudden_link_failure" selected>Sudden Link Failure (R2-R4)</option>
-                <option value="mild_congestion">Mild congestion (rising latency)</option>
+                <option value="preventive_congestion">Slow congestion · preventive lab</option><option value="mild_congestion">Mild congestion (rising latency)</option>
                 <option value="gradual_congestion">Severe Congestion (R2-R4)</option>
                 <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
               </select>
@@ -193,11 +198,7 @@
               <span class="kpi-label">Delivery Rate</span>
               <strong id="metricPdr" class="kpi-val text-sage">100.0%</strong>
             </div>
-            <div class="kpi-sparkline">
-              <svg id="kpiSparkDelivery" viewBox="0 0 75 26" preserveAspectRatio="none">
-                <path id="kpiSparkDeliveryPath" d="M0 22 Q 25 18, 50 10 T 75 4" fill="none" stroke="#10B981" stroke-width="2"/>
-              </svg>
-            </div>
+
           </div>
 
           <!-- Card 2: Latency / SLO -->
@@ -212,11 +213,7 @@
                 <span id="metricSloTarget" class="slo-target-pill">≤ 30 ms</span>
               </div>
             </div>
-            <div class="kpi-sparkline">
-              <svg id="kpiSparkLatency" viewBox="0 0 75 26" preserveAspectRatio="none">
-                <path id="kpiSparkLatencyPath" d="M0 12 Q 25 18, 50 14 T 75 18" fill="none" stroke="#F59E0B" stroke-width="2"/>
-              </svg>
-            </div>
+
           </div>
 
           <!-- Card 3: Recovery Time -->
@@ -228,11 +225,7 @@
               <span class="kpi-label">Recovery Time</span>
               <strong id="metricRecoveryDuration" class="kpi-val">—</strong>
             </div>
-            <div class="kpi-sparkline">
-              <svg id="kpiSparkRecovery" viewBox="0 0 75 26" preserveAspectRatio="none">
-                <path id="kpiSparkRecoveryPath" d="M0 22 Q 30 22, 50 8 T 75 4" fill="none" stroke="#10B981" stroke-width="2"/>
-              </svg>
-            </div>
+
           </div>
 
           <!-- Card 4: Packets Delivered -->
@@ -247,19 +240,7 @@
                 <span class="kpi-sub" id="metricPacketsRatio">/ 0 sent</span>
               </div>
             </div>
-            <div class="kpi-sparkline">
-              <svg id="kpiSparkPackets" viewBox="0 0 75 26" preserveAspectRatio="none">
-                <rect x="5" y="16" width="3" height="9" fill="#10B981" rx="1"/>
-                <rect x="13" y="13" width="3" height="12" fill="#10B981" rx="1"/>
-                <rect x="21" y="10" width="3" height="15" fill="#10B981" rx="1"/>
-                <rect x="29" y="7" width="3" height="18" fill="#10B981" rx="1"/>
-                <rect x="37" y="5" width="3" height="20" fill="#10B981" rx="1"/>
-                <rect x="45" y="3" width="3" height="22" fill="#10B981" rx="1"/>
-                <rect x="53" y="2" width="3" height="23" fill="#10B981" rx="1"/>
-                <rect x="61" y="2" width="3" height="23" fill="#10B981" rx="1"/>
-                <rect x="69" y="2" width="3" height="23" fill="#10B981" rx="1"/>
-              </svg>
-            </div>
+
           </div>
 
           <!-- Card 5: Simulation Time & AI Provider -->
@@ -271,7 +252,7 @@
               <span class="kpi-label">Simulation Time</span>
               <strong id="clockDisplay" class="kpi-val">00:00.0</strong>
             </div>
-            <div class="kpi-sparkline">
+            <div class="provider-status">
               <span id="providerBadge" class="provider-pill-compact provider-live">● Qualcomm AI 100</span>
             </div>
           </div>
@@ -312,6 +293,7 @@
           </div>
         </section>
 
+
         <!-- Center Workspace: Canvas + Right Inspector -->
         <div class="workspace-body">
           <!-- Topology Canvas Area -->
@@ -321,7 +303,7 @@
               <div class="canvas-title-cluster">
                 <span class="canvas-title">Network Topology:</span>
                 <select id="canvasTopologySelect" class="canvas-topo-select" title="Switch network topology preset">
-                  <option value="reroute_six_router" selected>Six-Router Recovery Mesh (Official)</option>
+                  <option value="reroute_six_router" selected>Recovery lab · slower backup</option><option value="preventive_mesh">Preventive lab · 20 ms backup</option>
                   <option value="self_healing">Self-Healing Demo</option>
                   <option value="redundant">Redundant Dual Trunk</option>
                   <option value="two_router">Two Router Network</option>
@@ -397,7 +379,7 @@
             <div class="canvas-legend-strip">
               <div class="legend-pills-row">
                 <span class="leg-pill"><i class="leg-line active-sage"></i> Active route</span>
-                <span class="leg-pill"><i class="leg-line failed-dash"></i> Failed route</span>
+                <span class="leg-pill"><i class="leg-line failed-dash"></i> Failed link</span><span class="leg-pill"><i class="leg-line degraded"></i> Degraded link</span>
                 <span class="leg-pill"><i class="leg-line inactive-link"></i> Inactive link</span>
                 <span class="leg-pill"><i class="leg-line alternate-blue"></i> Alternate route</span>
               </div>
@@ -423,8 +405,8 @@
           <aside class="right-inspector" id="rightInspector">
             <div class="ins-tabs">
               <button class="ins-tab active" data-tab="node">Node Details</button>
-              <button class="ins-tab" data-tab="link">Link Details</button>
-              <button class="ins-tab" data-tab="simulation">Simulation</button>
+              <button class="ins-tab" data-tab="link">Routes</button>
+              <button class="ins-tab" data-tab="simulation">Events</button>
             </div>
 
             <div class="inspector-header">
@@ -446,7 +428,7 @@
                 <div class="prop-row"><label>Type</label><strong id="insPropType">Router</strong></div>
                 <div class="prop-row"><label>IP Address</label><span id="insPropIp">10.0.2.1</span></div>
                 <div class="prop-row"><label>Interfaces</label><span id="insPropInterfaces">3 (2 active)</span></div>
-                
+
                 <div class="prop-metric-bar">
                   <div class="metric-bar-head"><span>CPU Usage</span><strong id="insPropCpuText">22%</strong></div>
                   <div class="progress-track"><div class="progress-fill green-fill" id="insPropCpuFill" style="width:22%;"></div></div>
@@ -467,6 +449,11 @@
             </div>
           </aside>
         </div>
+
+        <section class="decision-strip" aria-label="Recovery evidence">
+          <div><span class="decision-label">USER IMPACT · FAULT TO RECOVERY</span><strong id="impactVerdict">Waiting for a fault</strong><p id="impactDetail">Packet loss and latency breaches will be measured here.</p></div>
+          <div><span class="decision-label">WHY THIS ACTION?</span><strong id="decisionTitle">Monitoring the network</strong><p id="decisionExplanation">Run traffic and inject a fault to see the diagnosis.</p><details><summary>Inspect observations sent to diagnosis</summary><div id="diagnosisObservations" class="observation-table">No diagnosis requested.</div></details></div>
+        </section>
 
         <!-- Bottom Dock: 3 Live Charts & Recent Events -->
         <footer class="bottom-dock">
@@ -629,12 +616,12 @@
               <div class="detail-col">
                 <div class="prop-row"><label>Root Cause Class:</label><strong id="rcaFaultCategory">Trunk Link Loss</strong></div>
                 <div class="prop-row"><label>Primary Culprit:</label><span id="rcaPrimaryCulprit" class="text-copper">Link R2 ↔ R4</span></div>
-                <div class="prop-row"><label>Detection Signal:</label><span id="rcaDetectionSignal">Latency Slope &gt; 23.5 ms/s</span></div>
+                <div class="prop-row"><label>Detection Signal:</label><span id="rcaDetectionSignal">Awaiting diagnostic evidence</span></div>
               </div>
               <div class="detail-col">
                 <div class="prop-row"><label>Blast Radius:</label><span id="rcaBlastRadius">Egress flow (Client ➔ Server)</span></div>
                 <div class="prop-row"><label>Bypass Strategy:</label><span id="rcaBypassStrategy">Dynamic Dijkstra through R3-R5</span></div>
-                <div class="prop-row"><label>Safety Guard:</label><span class="text-sage">Validated on Physical Graph</span></div>
+                <div class="prop-row"><label>Safety Guard:</label><span class="text-sage" id="rcaSafetyGuard">Not evaluated yet</span></div>
               </div>
             </div>
             <div class="inc-explanation-box" id="incRcaDeepDive">
@@ -683,7 +670,7 @@
               <label for="compareScenarioSelect">Scenario:</label>
               <select id="compareScenarioSelect" class="scenario-select">
                 <option value="sudden_link_failure">Sudden Link Failure (R2-R4)</option>
-                <option value="mild_congestion">Mild Increasing Congestion</option>
+                <option value="preventive_congestion">Slow congestion · preventive lab</option><option value="mild_congestion">Mild Increasing Congestion</option>
                 <option value="gradual_congestion">Severe Gradual Congestion</option>
                 <option value="no_alternate_path">No Alternate Path</option>
               </select>
@@ -705,7 +692,7 @@
               <div class="compare-metric-row">
                 <span>Post-fault latency:</span>
                 <strong id="cmpOffLat">—</strong>
-              </div>
+              </div><div class="compare-metric-row"><span>Packets above 30 ms</span><strong id="cmpOffBreaches">—</strong></div>
               <div class="compare-metric-row">
                 <span>Outcome:</span>
                 <span id="cmpOffOutcome">—</span>
@@ -721,7 +708,7 @@
               <div class="compare-metric-row">
                 <span>Post-fault latency:</span>
                 <strong id="cmpOnLat">—</strong>
-              </div>
+              </div><div class="compare-metric-row"><span>Packets above 30 ms</span><strong id="cmpOnBreaches">—</strong></div>
               <div class="compare-metric-row">
                 <span>Recovery time:</span>
                 <strong id="cmpOnRecovery">—</strong>
@@ -819,14 +806,14 @@
                 <h3>NC-04 Problem Statement &amp; Purpose</h3>
                 <span>Autonomous, AI-Assisted Telemetry Monitoring, Root-Cause Diagnosis, and Dynamic Healing</span>
               </div>
-              <span class="conn-status-badge status-up">Solved</span>
+              <span class="conn-status-badge status-up">Simulation MVP</span>
             </div>
             <div class="conn-card-body" style="font-size: 13px; line-height: 1.6; color: var(--text-main);">
               <p style="margin-bottom: 10px;">
                 <strong>Challenge:</strong> Modern distributed systems experience silent link degradations, optical jitter, and transient micro-burst queue build-ups. Traditional reactive routing takes seconds to minutes to converge, causing bufferbloat, SLA breaches, and dropped customer transactions.
               </p>
               <p>
-                <strong>Nexus Solution:</strong> A closed-loop, self-healing network simulator powered by the <strong>Qualcomm Cloud AI 100 Playground</strong> (Llama-3.1-8B on Cirrascale). Nexus detects rising edge queue congestion (&ge; 20%) and path latency approaching the proactive threshold (&ge; 23.5 ms), triggers non-blocking LLM root-cause triage, applies topology-verified Dijkstra bypass routes, and proves recovery across 5 consecutive packets before user SLOs (&le; 30.0 ms) are breached.
+                <strong>Nexus Solution:</strong> A closed-loop, self-healing network simulator powered by the <strong>Qualcomm Cloud AI 100 Playground</strong> (Llama-3.1-8B on Cirrascale). Nexus detects loss, missed heartbeats and rising link congestion, requests AI-assisted diagnosis, then applies a topology-validated bypass. Five consecutive delivered packets within the 50 ms recovery limit verify delivery restoration; the stricter 30 ms service target is reported separately. Early detection reduces risk, but cannot guarantee zero user impact.
               </p>
             </div>
           </div>
@@ -843,7 +830,7 @@
               </div>
               <div class="conn-card-body">
                 <div class="prop-row"><label>Engine:</label><span>LabSession event-driven packet simulator</span></div>
-                <div class="prop-row"><label>Topology:</label><span>NetworkX dynamic directed graph</span></div>
+                <div class="prop-row"><label>Topology:</label><span>NetworkX dynamic network graph</span></div>
                 <div class="prop-row"><label>Telemetry:</label><span>Real queue buffer depth, sliding latency, loss rates</span></div>
                 <div class="prop-row"><label>Non-Blocking:</label><span>Threaded asynchronous AI dispatch with epoch protection</span></div>
               </div>
@@ -911,13 +898,13 @@
               <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
                 <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">1. DETECT</div>
                 <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
-                  <code>ExplainableDetector</code> continuously monitors buffer queues and latency. Flags rising congestion &ge; 20% or latency &ge; 23.5 ms before SLA breach.
+                  <code>ExplainableDetector</code> monitors latency, loss and heartbeats. Early congestion detection requires observed link congestion &ge; 20% together with link latency &ge; 9 ms.
                 </div>
               </div>
               <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
                 <div style="font-weight: 800; color: var(--sage); font-size: 12px; margin-bottom: 4px;">2. TRIGGER</div>
                 <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.5;">
-                  Spawns an asynchronous background worker thread. Simulator continues packet streaming at wire speed with epoch invalidation.
+                  Spawns an asynchronous background worker thread. Simulator continues packet streaming in simulated time with epoch invalidation.
                 </div>
               </div>
               <div style="background: var(--panel-elevated); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
@@ -966,6 +953,6 @@
   <div id="toast" class="toast"></div>
 
   <!-- Shared Nexus Application Logic -->
-  <script src="/app.js?v=release-4"></script>
+  <script src="/app.js?v=release-5"></script>
 </body>
 </html>

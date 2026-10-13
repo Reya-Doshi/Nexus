@@ -905,3 +905,115 @@ def test_loading_new_network_clears_previous_incident_and_static_route():
     assert s.reroute_controller.incident_state == IncidentState.HEALTHY
     assert s.reroute_controller.current_route == []
     assert s.simulator.router.static_route is None
+
+
+def test_offline_diagnosis_finishes_without_thread_scheduling():
+    """Local rules have no I/O and must not race fast simulator steps."""
+    client = QualcommAIClient(api_key="")
+    epoch = client.new_epoch()
+    results = []
+    thread = client.diagnose_async(epoch, {}, ["R2-R4"], ["R2", "R4"],
+                                   ["Heartbeat missed"], "R2-R4", results.append)
+    assert thread is None
+    assert len(results) == 1
+    assert results[0].is_fallback
+    assert not client.is_busy
+
+
+def test_demo_healing_preserves_unrelated_flow_endpoints():
+    session = LabSession()
+    session.load_reroute_demo()
+    session.start_traffic("R1", "R3", packet_count=10)
+    unrelated = [f for f in session.simulator.active_flows.values() if f.source == "R1"][0]
+    original = list(unrelated.current_route)
+    ctrl = session.reroute_controller
+    ctrl.ai_client.api_key = ""
+    ctrl.inject_scenario(ReRouteScenarioType.SUDDEN_LINK_FAILURE.value)
+    ctrl._execute_rerouting()
+    assert unrelated.current_route == original
+    assert unrelated.current_route[0] == "R1"
+    assert unrelated.current_route[-1] == "R3"
+
+def test_impact_window_does_not_claim_success_without_evidence():
+    from reroute_engine import ImpactWindow
+    w = ImpactWindow()
+    assert w.summary()['verdict'] == 'collecting'
+    w.closed = True
+    assert w.summary()['verdict'] == 'insufficient_evidence'
+
+
+def test_impact_window_keeps_pre_recovery_loss_and_breaches():
+    from reroute_engine import ImpactWindow
+    w = ImpactWindow()
+    w.record(1, 'DROPPED', None)
+    w.record(1, 'DROPPED', None)
+    w.record(2, 'DELIVERED', 31)
+    for i in range(3, 8):
+        w.record(i, 'DELIVERED', 20)
+    w.closed = True
+    w.record(8, 'DELIVERED', 90)
+    assert w.summary()['observed_packets'] == 7
+    assert w.summary()['dropped_packets'] == 1
+    assert w.summary()['slo_breaches'] == 1
+    assert w.summary()['verdict'] == 'impact_observed'
+
+
+def test_impact_window_requires_known_latency_and_completed_recovery():
+    from reroute_engine import ImpactWindow
+    w = ImpactWindow()
+    for i in range(5):
+        w.record(i, 'DELIVERED', 30)
+    assert w.summary()['verdict'] == 'collecting'
+    w.closed = True
+    assert w.summary()['verdict'] == 'no_impact_observed'
+    w = ImpactWindow()
+    for i in range(5):
+        w.record(i, 'DELIVERED', None)
+    w.closed = True
+    assert w.summary()['verdict'] == 'insufficient_evidence'
+
+
+def test_ai_unsupported_action_uses_labelled_fallback():
+    client = QualcommAIClient(api_key='')
+    result = client._parse_and_validate('Likely Cause: HIGH_CONGESTION\nAffected Component: R2-R4\nRecommended Action: TRAFFIC_SHAPING\nExplanation: Shape traffic', ['R2-R4'], ['R2','R4'], 5)
+    assert result.is_fallback
+    assert result.recommended_action == 'REROUTE_TRAFFIC'
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_preventive_lab_measures_impact_for_identical_workload(enabled):
+    session = LabSession()
+    session.load_reroute_demo(preventive=True)
+    ctrl = session.reroute_controller
+    ctrl.ai_client.api_key = ''
+    ctrl.healing.auto_heal_enabled = enabled
+    ctrl.inject_scenario('preventive_congestion')
+    for _ in range(30):
+        session.reroute_step()
+    impact = ctrl.impact.summary()
+    if enabled:
+        assert ctrl.incident_state == IncidentState.RECOVERED
+        assert ctrl.healing.service_target_met
+        assert impact['verdict'] == 'no_impact_observed'
+        assert impact['slo_breaches'] == 0
+        assert impact['dropped_packets'] == 0
+    else:
+        assert impact['verdict'] == 'impact_observed'
+        assert impact['slo_breaches'] > 0
+        assert not ctrl.healing.delivery_restored
+
+
+def test_ai_attribution_requires_observed_support():
+    c = QualcommAIClient(api_key='')
+    d = c._parse_and_validate('Likely Cause: LINK_FAILURE\nAffected Component: R2-R4\nRecommended Action: REROUTE_TRAFFIC', ['R2-R4'], ['R2','R4'], 1)
+    normal = {'link_stats': {'R2-R4': {'consecutive_missed_hb':0, 'loss_rate':0, 'utilization':0, 'latency_ms':5}}}
+    assert c.validate_observed_diagnosis(d, normal, ['R2-R4'], ['R2','R4'], ['Heartbeat missed'], 'R2-R4').is_fallback
+    normal['link_stats']['R2-R4']['consecutive_missed_hb'] = 2
+    assert not c.validate_observed_diagnosis(d, normal, ['R2-R4'], ['R2','R4'], ['Heartbeat missed'], 'R2-R4').is_fallback
+
+
+def test_preventive_benchmark_shows_breaches_avoided():
+    from reroute_engine import run_comparison_benchmark
+    r = run_comparison_benchmark('preventive_congestion', 40, 42).to_dict()
+    assert r['auto_heal_off']['post_action']['slo_breaches'] > 0
+    assert r['auto_heal_on']['post_action']['slo_breaches'] == 0
+    assert r['auto_heal_on']['final_status'] == 'Recovered'

@@ -43,7 +43,7 @@ from services_security import (
 )
 from simulator import NetworkSimulator
 from topology import NetworkTopology
-from reroute_engine import ReRouteController, get_six_router_preset
+from reroute_engine import ReRouteController, get_six_router_preset, get_preventive_preset
 
 
 
@@ -1793,9 +1793,9 @@ class LabSession:
     # ------------------------------------------------------------------
     # ReRoute / Vanguard Autonomous Engine Actions
     # ------------------------------------------------------------------
-    def load_reroute_demo(self) -> Dict[str, Any]:
+    def load_reroute_demo(self, preventive: bool = False) -> Dict[str, Any]:
         with self.lock:
-            self.load_preset("reroute_six_router")
+            self.load_preset("preventive_mesh" if preventive else "reroute_six_router")
             self.reroute_controller.reset()
             self.start_traffic(
                 source="Client",
@@ -1927,5 +1927,6 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "large_network": {"version": 1, "name": "Large Network", "settings": {"seed": 42}, "devices": [_device("host", f"PC{i}", 80 + (i % 4) * 180, 100 + (i // 4) * 150) for i in range(1, 9)] + [_device("router", f"R{i}", 350 + (i % 3) * 180, 120 + (i // 3) * 180) for i in range(1, 5)] + [_device("switch", "SW1", 550, 300)] + [_device("server", "Server1", 900, 300)], "links": [_link("PC1", "R1"), _link("PC2", "R1"), _link("PC3", "R2"), _link("PC4", "R2"), _link("PC5", "R3"), _link("PC6", "R3"), _link("PC7", "R4"), _link("PC8", "R4"), _link("R1", "SW1"), _link("R2", "SW1"), _link("R3", "SW1"), _link("R4", "SW1"), _link("SW1", "Server1")]},
     "existing_default": {"version": 1, "name": "Existing Default Topology", "settings": {"seed": 42}, "devices": [_device("host", n, 80 + (i % 4) * 210, 100 + (i // 4) * 180) for i, n in enumerate(["H1", "H2", "H3", "H4"])] + [_device("router", n, 260 + (i % 3) * 190, 110 + (i // 3) * 190) for i, n in enumerate(["R1", "R2", "R3", "R4", "R5", "R6"])], "links": [_link("H1", "R1"), _link("H2", "R2"), _link("H3", "R5"), _link("H4", "R6"), _link("R1", "R2", 10), _link("R1", "R3", 15), _link("R2", "R4", 12), _link("R3", "R4", 8), _link("R3", "R5", 15), _link("R4", "R5", 10), _link("R4", "R6", 18), _link("R5", "R6", 10)]},
     "reroute_six_router": get_six_router_preset(),
+    "preventive_mesh": get_preventive_preset(),
 }
 

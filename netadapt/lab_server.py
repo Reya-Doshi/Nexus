@@ -342,7 +342,7 @@ class LabHandler(BaseHTTPRequestHandler):
             elif action == "console":
                 result = SESSION.console(str(payload["id"]), str(payload["command"]))
             elif action == "reroute_init":
-                result = SESSION.load_reroute_demo()
+                result = SESSION.load_reroute_demo(preventive=bool(payload.get("preventive", False)))
             elif action == "reroute_step":
                 result = SESSION.reroute_step()
             elif action == "reroute_set_auto_heal":
