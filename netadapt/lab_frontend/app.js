@@ -1250,12 +1250,6 @@ function applyEditorModeLocks() {
   if ($('mainStartBtn')) $('mainStartBtn').disabled = false;
   if ($('mainPauseBtn')) $('mainPauseBtn').disabled = !isRunning;
 
-  const modeHint = $('modeHint');
-  if (modeHint) {
-    modeHint.style.display = 'inline';
-    modeHint.textContent = isRunning ? 'Build pauses playback for editing' : isBuild ? 'Add a device, then connect it' : 'Select Build to edit devices';
-  }
-
   // If running, cancel active connect/delete tool
   if (isRunning && (mode === 'connect' || mode === 'delete')) {
     setMode('select');
