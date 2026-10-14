@@ -424,13 +424,28 @@ class QualcommAIClient:
         self._lock = threading.Lock()
         self.active_diagnosis: Optional[AIDiagnosisResult] = None
         self.is_busy: bool = False
+        self.trace = {}
 
     def new_epoch(self) -> int:
         with self._lock:
             self.current_epoch += 1
             self.active_diagnosis = None
+            self.trace = {}
             self.is_busy = False
             return self.current_epoch
+
+    def _trace_update(self, epoch, **fields):
+        with self._lock:
+            if epoch != self.current_epoch:
+                return
+            for key, value in fields.items():
+                if isinstance(value, str) and self.api_key:
+                    value = value.replace(self.api_key, "[redacted]")
+                self.trace[key] = value
+
+    def trace_snapshot(self):
+        with self._lock:
+            return copy.deepcopy(self.trace)
 
     def diagnose_async(
         self,
@@ -470,6 +485,8 @@ class QualcommAIClient:
         on_complete: Callable[[AIDiagnosisResult], None],
     ) -> None:
         start_time = time.perf_counter()
+        self._trace_update(epoch, request_id=f"diagnosis-{epoch}", model=self.model,
+            captured_at_ms=round(time.time()*1000), status="captured")
 
         # If no key or mock key, use rule-based fallback immediately
         if not self.api_key or "your_" in self.api_key:
@@ -477,6 +494,7 @@ class QualcommAIClient:
                 suspected_component, detector_evidence, current_route,
                 topology_components, "QUALCOMM_AI_KEY not configured", 0.1
             )
+            self._trace_update(epoch, status="fallback", failure="Credentials unavailable; no external request sent")
             self._dispatch_if_current(epoch, res, on_complete)
             return
 
@@ -500,16 +518,17 @@ class QualcommAIClient:
             f"Affected Component: <one of {comps_str}>\n"
             "Evidence: <evidence list or summary>\n"
             f"Recommended Action: <one of {actions_str}>\n"
-            "Explanation: <concise explanation under 30 words>\n"
+            "Explanation: <up to 90 words: explain the causal chain using observed values, contrast congestion versus loss/heartbeat failure, explain why bypassing the affected component helps, and state what telemetry cannot prove. Do not claim physical cable damage or successful recovery before verification>\n"
         )
 
+        self._trace_update(epoch, request_text=user_prompt)
         chat_url = f"{self.endpoint}/chat/completions"
         payload = json.dumps({
             "model": self.model,
             "messages": [
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 200,
+            "max_tokens": 360,
             "temperature": 0.0,
         }).encode("utf-8")
 
@@ -523,6 +542,7 @@ class QualcommAIClient:
         )
 
         try:
+            self._trace_update(epoch, status="waiting", request_sent_at_ms=round(time.time()*1000))
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 elapsed_ms = (time.perf_counter() - start_time) * 1000.0
                 body = resp.read().decode("utf-8")
@@ -531,6 +551,9 @@ class QualcommAIClient:
                 if not choices:
                     raise ValueError("No choices in LLM response")
                 content = choices[0]["message"]["content"].strip()
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                self._trace_update(epoch, status="received", response_received_at_ms=round(time.time()*1000),
+                    elapsed_ms=round(elapsed_ms,1), response_text=content[:16000])
                 result = self._parse_and_validate(
                     content, topology_components, current_route, elapsed_ms
                 )
@@ -545,6 +568,7 @@ class QualcommAIClient:
         except Exception as e:
             err = f"Qualcomm API Exception: {e}"
 
+        self._trace_update(epoch, status="failed", failure=err, completed_at_ms=round(time.time()*1000))
         # On any error/timeout, trigger verified rule fallback
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         fallback = self._fallback_rule_diagnosis(
@@ -741,6 +765,11 @@ class QualcommAIClient:
                 # Discard stale response
                 return
             self.active_diagnosis = result
+            self.trace.update(validation="fallback" if result.is_fallback else "accepted",
+                validation_reason="Model result not used; deterministic fallback selected" if result.is_fallback else "Cause/component corroborated; supported action accepted",
+                completed_at_ms=round(time.time()*1000))
+            if self.trace.get("status") not in {"failed", "fallback"}:
+                self.trace["status"] = "fallback" if result.is_fallback else "accepted"
             self.is_busy = False
         on_complete(result)
 
@@ -985,6 +1014,7 @@ class ReRouteController:
         self.sim_step_count: int = 0
         self.incident_history: List[Dict[str, Any]] = []
 
+        self.source, self.destination = "Client", "Server"
         self.current_route: List[str] = ["Client", "R1", "R2", "R4", "R6", "Server"]
         self.previous_route: Optional[List[str]] = None
         self.active_diagnosis: Optional[AIDiagnosisResult] = None
@@ -1032,6 +1062,7 @@ class ReRouteController:
         self.link_probe_misses.clear()
         self.link_probe_history.clear()
         self.last_probe_sim_time = 0.0
+        self.source, self.destination = "Client", "Server"
         self.current_route = ["Client", "R1", "R2", "R4", "R6", "Server"]
         if hasattr(self.session, "simulator") and hasattr(self.session.simulator, "router"):
             graph = self.session.simulator.topology.graph
@@ -1063,6 +1094,9 @@ class ReRouteController:
             "sim_time": round(self.session.simulator.time, 3),
             "state": self.incident_state.value,
             "message": text,
+            "component": self.active_diagnosis.affected_component if self.active_diagnosis else None,
+            "provider": getattr(self.active_diagnosis, "model_name", None),
+            "recovery_time": self.recovery_time_sim_time if self.incident_state == IncidentState.RECOVERED else None,
         }
         self.incident_history.append(entry)
         del self.incident_history[:-500]
@@ -1102,7 +1136,7 @@ class ReRouteController:
             # Observed packets can belong to an older route. They must not change
             # the controller's selected forwarding policy.
             self.telemetry.record_packet(
-                pkt_id, self.session.simulator.time, "Client", "Server",
+                pkt_id, self.session.simulator.time, self.source, self.destination,
                 status, lat_ms, route
             )
 
@@ -1325,6 +1359,14 @@ class ReRouteController:
                                 )
                             )
 
+            if last_pkt and self.incident_state == IncidentState.VERIFYING:
+                if not hasattr(self, "verification_attempt_ids"):
+                    self.verification_attempt_ids = set()
+                self.verification_attempt_ids.add(last_pkt.get("id"))
+                if len(self.verification_attempt_ids) >= 20:
+                    self.incident_state = IncidentState.UNRESOLVED
+                    self.log_incident_event("Recovery unverified after 20 packet observations: bypass delivery/latency did not satisfy recovery limits. Restore or improve the route.")
+
         elif self.incident_state == IncidentState.UNRESOLVED:
             if (self.healing.auto_heal_enabled and
                     self._topology_signature() != getattr(self, "_last_route_topology", None)):
@@ -1413,6 +1455,7 @@ class ReRouteController:
         self.healing.consecutive_delivered_on_new_route = 0
         self.healing.verification_latencies.clear()
         self.healing.verified_packet_ids.clear()
+        self.verification_attempt_ids = set()
 
     def _execute_rerouting(self) -> None:
         """Finds deterministic alternative path excluding the affected component."""
@@ -1436,7 +1479,7 @@ class ReRouteController:
                 if not degraded:
                     comp = None
 
-        alt = self.healing.calculate_alternative_path(topo, "Client", "Server", exclude_component=comp)
+        alt = self.healing.calculate_alternative_path(topo, self.source, self.destination, exclude_component=comp)
         if not alt:
             self.recovery_time_sim_time = None
             self.incident_state = IncidentState.UNRESOLVED
@@ -1493,6 +1536,7 @@ class ReRouteController:
         self.healing.expected_route = list(new_route)
         self.healing.action_sim_time = self.session.simulator.time
         self.healing.verified_packet_ids.clear()
+        self.verification_attempt_ids = set()
         self.healing.verification_latencies.clear()
         self.healing.delivery_restored = False
         self.healing.service_target_met = False
@@ -1520,7 +1564,7 @@ class ReRouteController:
         topo = self.session.simulator.topology
 
         # Check if endpoints still exist and are active
-        if "Client" not in topo.graph or "Server" not in topo.graph or not topo.active_node("Client") or not topo.active_node("Server"):
+        if self.source not in topo.graph or self.destination not in topo.graph or not topo.active_node(self.source) or not topo.active_node(self.destination):
             self._invalidate_recovery()
             self.incident_state = IncidentState.UNRESOLVED
             self.current_route = []
@@ -1555,7 +1599,7 @@ class ReRouteController:
                 self.log_incident_event("Manual edit severed route. Auto-Heal is OFF: packets dropping.")
         elif self.incident_state == IncidentState.UNRESOLVED and self.healing.auto_heal_enabled:
             # Check if network repair allows reconnecting
-            alt = self.healing.calculate_alternative_path(topo, "Client", "Server")
+            alt = self.healing.calculate_alternative_path(topo, self.source, self.destination)
             if alt:
                 self.log_incident_event("Repaired link/device restored connectivity. Rerouting...")
                 self._execute_rerouting()
@@ -1566,6 +1610,7 @@ class ReRouteController:
             "impact": self.impact.summary(),
             "impact_started": self.fault_onset_sim_time is not None,
             "diagnosis_input": self.diagnosis_input,
+            "ai_trace": self.ai_client.trace_snapshot(),
             "ai_configured": bool(self.ai_client.api_key and "your_" not in self.ai_client.api_key),
             "incident_state": self.incident_state.value,
             "auto_heal_enabled": self.healing.auto_heal_enabled,
@@ -1591,6 +1636,7 @@ class ReRouteController:
                 "is_fallback": self.active_diagnosis.is_fallback if self.active_diagnosis else False,
             } if self.active_diagnosis else None,
             "metrics": {
+                "fault_injection_sim_time": self.fault_onset_sim_time,
                 "detection_delay_sim_time": self.detection_delay_sim_time,
                 "recovery_time_sim_time": self.recovery_time_sim_time,
                 "recent_pdr_pct": self.telemetry.get_recent_delivery_rate(),

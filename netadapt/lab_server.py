@@ -347,6 +347,8 @@ class LabHandler(BaseHTTPRequestHandler):
                 result = SESSION.reroute_step()
             elif action == "reroute_set_auto_heal":
                 result = SESSION.reroute_set_auto_heal(bool(payload.get("value", True)))
+            elif action == "inject_custom_fault":
+                result = SESSION.inject_custom_fault(str(payload["source"]), str(payload["destination"]), str(payload["u"]), str(payload["v"]), str(payload["fault"]))
             elif action == "reroute_inject_scenario":
                 result = SESSION.reroute_inject_scenario(str(payload.get("scenario", "sudden_link_failure")))
             elif action == "reroute_reset":

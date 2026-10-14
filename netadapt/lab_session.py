@@ -1809,10 +1809,10 @@ class LabSession:
 
     def reroute_step(self) -> Dict[str, Any]:
         with self.lock:
-            if not self.simulator.packets and not any(f.status == "ACTIVE" for f in self.simulator.active_flows.values()):
+            if self.simulator.scheduler.empty():
                 self.start_traffic(
-                    source="Client",
-                    destination="Server",
+                    source=self.reroute_controller.source,
+                    destination=self.reroute_controller.destination,
                     packet_count=20,
                     pps=5.0,
                     traffic_type="Video",
@@ -1820,6 +1820,39 @@ class LabSession:
                 )
             self.reroute_controller.step()
             self.running = True
+            return self.state()
+
+    def inject_custom_fault(self, source: str, destination: str, u: str, v: str, fault: str) -> Dict[str, Any]:
+        """Inject on an existing link without replacing the user's topology."""
+        with self.lock:
+            topo = self.simulator.topology
+            if source == destination or source not in topo.devices or destination not in topo.devices:
+                raise LabError("Choose two different existing traffic endpoints")
+            if not topo.graph.has_edge(u, v):
+                raise LabError("Choose an existing link to fault")
+            if fault not in {"link_failure", "congestion"}:
+                raise LabError("Unsupported custom fault")
+            ctrl = self.reroute_controller
+            route = ctrl.healing.calculate_alternative_path(topo, source, destination)
+            if not route:
+                raise LabError(f"No path from {source} to {destination}. Connect or restore the route before injecting a fault.")
+            if not any({a,b} == {u,v} for a,b in zip(route[0], route[0][1:])):
+                raise LabError("Choose a link on the selected traffic route to demonstrate its impact")
+            ctrl.reset()
+            ctrl.source, ctrl.destination = source, destination
+            ctrl.current_route = list(route[0])
+            ctrl.previous_route = list(route[0])
+            ctrl.active_scenario = "custom_fault"
+            ctrl.fault_onset_sim_time = self.simulator.time
+            ctrl.incident_start_sim_time = self.simulator.time
+            ctrl.failed_components = [f"{u}-{v}"]
+            self.start_traffic(source, destination, packet_count=100, pps=5.0)
+            edge = topo.graph[u][v]
+            if fault == "link_failure":
+                topo.fail_link(u, v)
+            else:
+                edge.update(congestion=0.65, packet_loss=0.0)
+            ctrl.log_incident_event(f"Injected {fault} on {u}-{v}; flow {source} to {destination}")
             return self.state()
 
     def reroute_set_auto_heal(self, enabled: bool) -> Dict[str, Any]:

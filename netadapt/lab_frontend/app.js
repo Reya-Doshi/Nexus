@@ -167,7 +167,7 @@ function routeEdges() {
   const edges = new Set();
   const flows = (state?.flows || []).filter(f => f.status === 'ACTIVE');
   const routes = flows.length ? flows.map(f => f.route) :
-    (isDemoTopology() && state?.reroute?.incident_state !== 'Unresolved' ? [state?.reroute?.current_route] : []);
+    (usesRecoveryController() && state?.reroute?.incident_state !== 'Unresolved' ? [state?.reroute?.current_route] : []);
   for (const route of routes) {
     if (!routeIsConnected(route)) continue;
     for (let i = 0; i < route.length - 1; i++) edges.add(key(route[i], route[i + 1]));
@@ -245,6 +245,8 @@ function renderCanvas() {
     });
   });
 
+  packetLayer.innerHTML = "";
+  routeLayer.innerHTML = "";
   const packets = state.packets || [];
   if (Number(state.metrics?.sent || 0) === 0) { seenPacketIds.clear(); packetLayer.innerHTML = ''; routeLayer.innerHTML = ''; }
   if (!packets.length) {
@@ -257,7 +259,7 @@ function renderCanvas() {
     const packetKey = String(packet.id);
     if (!seenPacketIds.has(packetKey)) {
       seenPacketIds.add(packetKey);
-      animatePacket(packet);
+      // Packet motion removed: route highlights and measured telemetry remain.
     }
   });
 }
@@ -419,7 +421,7 @@ function updateStatusSentence(rerouteState, isRunning) {
     const hasActiveRoute = routeIsConnected(rerouteState?.current_route);
     const isDelivering = hasActiveRoute && Number(state?.reroute?.telemetry?.recent_delivery_rate_pct || 0) > 0;
     if (hasActiveRoute && isDelivering) {
-      text = `Degraded route — alternative paths exhausted. Packets are delivering on ${(rerouteState.current_route || []).join(' ➔ ')}, but latency/SLO target breached.`;
+      text = `Bypass active — recovery checks not passed. Packets are delivering on ${(rerouteState.current_route || []).join(' ➔ ')}, but latency/SLO target breached.`;
       icon = '▲';
       bannerClass = 'status-warning';
     } else {
@@ -429,7 +431,7 @@ function updateStatusSentence(rerouteState, isRunning) {
     }
   }
 
-  if (!isDemoTopology()) {
+  if (!usesRecoveryController()) {
     text = isRunning ? `Traffic running on ${state.name || 'custom topology'}. Select a device or link to inspect it.` : 'Ready to edit this topology.';
     icon = isRunning ? '●' : '✎';
     bannerClass = isRunning ? 'status-healthy' : '';
@@ -455,7 +457,7 @@ function updateKPIs(rerouteState) {
   const clockEl = $('clockDisplay');
   const badgeEl = $('providerBadge');
 
-  if (!isDemoTopology()) rerouteState = {};
+  if (!usesRecoveryController()) rerouteState = {};
   const pdr = rerouteState?.telemetry?.recent_delivery_rate_pct ?? state?.metrics?.pdr ?? (state?.overview?.packet_delivery_ratio) ?? 100.0;
   const sent = Math.round(state?.overview?.packets_sent ?? state?.metrics?.sent ?? rerouteState?.telemetry?.total_observed ?? 0);
   const delivered = Math.round(state?.overview?.packets_delivered ?? state?.metrics?.delivered ?? rerouteState?.telemetry?.total_delivered ?? 0);
@@ -911,9 +913,9 @@ function renderIncidentsPage() {
           <td>Event ${idx + 1}</td>
           <td>${esc(e.component || '—')}</td>
           <td>${esc(e.message || '—')}</td>
-          <td>${esc(r.diagnosis?.is_fallback === false ? 'Qualcomm AI 100' : 'Rules Fallback')}</td>
+          <td>${esc(e.provider || 'Not diagnosed yet')}</td>
           <td><span class="status-badge ${e.state === 'Recovered' ? 'status-up' : 'status-down'}">${esc(e.state)}</span></td>
-          <td>${r.metrics?.recovery_time_sim_time != null ? `${r.metrics.recovery_time_sim_time.toFixed(2)}s` : '—'}</td>
+          <td>${e.recovery_time != null ? `${e.recovery_time.toFixed(2)}s` : '—'}</td>
         </tr>
       `).join('');
     }
@@ -952,7 +954,7 @@ function renderIncidentsPage() {
   const rcaBadge = $('incRcaProviderBadge');
 
   if (rcaBadge) {
-    rcaBadge.textContent = diag?.is_fallback === false ? 'Qualcomm Cloud AI 100' : 'Deterministic Rule Engine';
+    rcaBadge.textContent = !diag ? 'Awaiting diagnosis' : diag.is_fallback === false ? 'Qualcomm Cloud AI 100' : 'Deterministic Rule Engine';
   }
 
   if (diag?.likely_cause) {
@@ -960,8 +962,8 @@ function renderIncidentsPage() {
     if (rcaCulprit) rcaCulprit.textContent = diag.affected_component || r.failed_components?.join(', ') || 'Not identified';
     if (rcaSignal) rcaSignal.textContent = diag.evidence?.[0] || 'Awaiting diagnostic evidence';
     if (rcaBlast) rcaBlast.textContent = `Active flow: ${(r.previous_route || ['Client', 'Server']).join(' ➔ ')}`;
-    if (rcaBypass) rcaBypass.textContent = (r.current_route && r.current_route.length) ? `Rerouted ➔ ${r.current_route.join(' ➔ ')}` : 'Alternative Dijkstra failover';
-    if (rcaDeep) rcaDeep.textContent = diag.explanation || 'Root cause pinpointed by AI inference. Deterministic Dijkstra path computed avoiding degraded components.';
+    if (rcaBypass) rcaBypass.textContent = (r.current_route && r.current_route.length) ? `Rerouted ➔ ${r.current_route.join(' ➔ ')}` : 'No usable bypass selected';
+    if (rcaDeep) rcaDeep.textContent = diag.explanation || 'No model explanation returned; inspect the measured evidence below.';
   } else {
     if (rcaCategory) rcaCategory.textContent = r.incident_state === 'Healthy' ? 'System Normal' : 'Anomaly Monitoring';
     if (rcaCulprit) rcaCulprit.textContent = r.failed_components?.length ? r.failed_components.join(', ') : 'None (All Links Up)';
@@ -971,6 +973,30 @@ function renderIncidentsPage() {
     if (rcaDeep) rcaDeep.textContent = 'No diagnosis available yet. Start traffic and inject a scenario to collect evidence.';
   }
 
+  const report = $('rcaEvidenceReport');
+  if (report) {
+    const entries = Object.entries(r.diagnosis_input?.link_stats || {});
+    const comp = diag?.affected_component;
+    const row = entries.find(([key]) => key === comp || key.split('-').reverse().join('-') === comp);
+    const obs = row?.[1];
+    const measured = obs ? `Latency ${fmt(obs.latency_ms,1)} ms; loss ${fmt((obs.loss_rate || 0)*100,1)}%; congestion indicator ${fmt((obs.utilization || 0)*100,1)}%; missed heartbeats ${obs.consecutive_missed_hb || 0}.` : 'No per-link diagnosis snapshot available.';
+    const hypothesis = !diag ? 'Awaiting diagnosis.' : diag.likely_cause === 'HIGH_CONGESTION' ? 'Elevated delay together with congestion supports queue pressure. Compare loss and heartbeat evidence before calling this a failed link.' : 'Loss or missed heartbeats supports link unavailability. Telemetry alone cannot establish physical cable damage.';
+    const route = (r.current_route || []).join(' → ');
+    const applied = ['Rerouting','Verifying','Recovered'].includes(r.incident_state);
+    const healing = r.incident_state === 'Unresolved' ? 'No usable route is available. Recovery has not been verified.' : applied ? `The simulator selected ${route}. Traffic uses the selected bypass; recovery is accepted only after distinct delivered packets pass verification.` : 'No corrective action has been verified yet.';
+    const impact = r.impact || {};
+    const cells = [
+      ['1. Diagnosis source', !diag ? 'Awaiting incident' : `${diag.model_name || 'Rules'} · ${diag.is_fallback ? 'rule fallback' : 'AI-assisted interpretation'}`],
+      ['2. Captured observations', measured],
+      ['3. Competing explanation', hypothesis],
+      ['4. Route before intervention', (r.previous_route || []).join(' → ') || 'Not captured'],
+      ['5. Corrective action', healing],
+      ['6. Verification result', `Delivery restored: ${r.delivery_restored ? 'yes' : 'not verified'}. 30 ms target: ${r.service_target_met ? 'met' : 'not verified / not met'}. Last verified latency: ${r.last_verified_latency_ms == null ? 'unavailable' : fmt(r.last_verified_latency_ms,1)+' ms'}.`]
+    ];
+    report.replaceChildren(...cells.map(([title,text]) => {
+      const block=document.createElement('div');const h=document.createElement('strong');h.textContent=title;const p=document.createElement('p');p.textContent=text;block.append(h,p);return block;
+    }));
+  }
   const expBox = $('incDetailExplanation');
   if (expBox) {
     expBox.textContent = diag?.explanation || (r.incident_state === 'Healthy' ? 'No active network failure. Telemetry is within bounds.' : 'Active incident under remediation.');
@@ -1017,17 +1043,27 @@ async function loadConnectionsPage() {
 // -----------------------------------------------------------------------------
 
 function isDemoTopology() {
-  const isSix = ['Client','Server','R1','R2','R3','R4','R5','R6'].every(id => state?.devices?.some(d => d.id === id));
-  const topoSelect = $('canvasTopologySelect');
-  if (topoSelect && state?.name) {
-    if (isSix) {
-      topoSelect.value = state.name.startsWith('Nexus Preventive Lab') ? 'preventive_mesh' : 'reroute_six_router';
-    } else {
-      const match = Array.from(topoSelect.options).find(o => state.name.toLowerCase().includes(o.value.replace('_', ' ').toLowerCase()));
-      if (match) topoSelect.value = match.value;
-    }
-  }
-  return isSix;
+  return ['Client','Server','R1','R2','R3','R4','R5','R6'].every(id => state?.devices?.some(d => d.id === id));
+}
+function usesRecoveryController() { return isDemoTopology() || state?.reroute?.active_scenario === 'custom_fault'; }
+function selectedPath() {
+  const src=$('trafficSource')?.value, dst=$('trafficTarget')?.value;
+  if (!src || !dst || src===dst) return [];
+  const up=new Set((state.devices || []).filter(d=>d.status==='UP').map(d=>d.id));
+  const queue=[[src]], seen=new Set([src]);
+  while(queue.length){const path=queue.shift(),node=path[path.length-1];if(node===dst)return path;
+    for(const l of state.links || []){if(l.status==='DOWN')continue;const next=l.source===node?l.target:l.target===node?l.source:null;
+      if(next && up.has(next) && !seen.has(next)){seen.add(next);queue.push([...path,next]);}}
+  }return [];
+}
+function renderReachability() {
+  const el=$('reachabilityAlert');if(!el)return;
+  const src=$('trafficSource')?.value,dst=$('trafficTarget')?.value;
+  const disconnected=src && dst && src!==dst && !selectedPath().length;
+  const p=state.last_packet;
+  const unreachable=p?.drop_reason==='DESTINATION_UNREACHABLE' && !state.reroute?.delivery_restored;
+  el.hidden=!(disconnected || unreachable || (usesRecoveryController() && state.reroute?.incident_state==='Unresolved'));
+  el.textContent=disconnected ? `NO PATH · ${src} → ${dst}. Connect the disconnected devices or restore a failed link. No recovery is possible without a usable route.` : unreachable ? `DESTINATION UNREACHABLE · Check ${src} → ${dst} addressing and routing, or select reachable endpoints.` : 'RECOVERY NOT VERIFIED · A route may exist, but delivery/latency checks have not passed. Inspect telemetry and the incident evidence.';
 }
 
 async function enterBuildMode() {
@@ -1038,7 +1074,7 @@ async function enterBuildMode() {
 
 function renderRecoverySummary() {
   const r = state.reroute || {};
-  const phase = isDemoTopology() ? (r.incident_state || 'Healthy') : 'Custom network';
+  const phase = usesRecoveryController() ? (r.incident_state || 'Healthy') : 'Custom network';
   const unresolved = phase === 'Unresolved';
   const curScenario = $('scenarioSelect')?.value || 'mild_congestion';
   const hasActiveRoute = routeIsConnected(r.current_route);
@@ -1047,7 +1083,7 @@ function renderRecoverySummary() {
   let heading = phase;
   if (unresolved) {
     if (hasActiveRoute && isDelivering) {
-      heading = 'Alternative paths exhausted';
+      heading = 'Bypass active · recovery not verified';
     } else {
       heading = 'No alternative path';
     }
@@ -1063,7 +1099,7 @@ function renderRecoverySummary() {
   let explanation = '';
   if (unresolved) {
     if (hasActiveRoute && isDelivering) {
-      explanation = 'Traffic is actively delivering on the current path, but alternative paths are exhausted or unable to meet latency targets.';
+      explanation = 'A connected bypass is delivering traffic, but the required consecutive packet/latency checks have not passed. Inspect measured delay and queueing.';
     } else {
       explanation = 'No reachable alternative path exists: redundant links are down or severed. Recovery safely blocked without claiming false resolution.';
     }
@@ -1094,7 +1130,7 @@ function renderRecoverySummary() {
     ? r.failed_components
     : (r.diagnosis?.affected_component ? [r.diagnosis.affected_component] : []);
   if (failedEl) {
-    if (isDemoTopology() && failedComps.length > 0 && phase !== 'Healthy' && phase !== 'Custom network') {
+    if (usesRecoveryController() && failedComps.length > 0 && phase !== 'Healthy' && phase !== 'Custom network') {
       failedEl.style.display = 'inline-block';
       failedEl.textContent = `Affected: ${failedComps.join(', ')}`;
     } else {
@@ -1105,7 +1141,7 @@ function renderRecoverySummary() {
   // 2. Previous route badge
   const prevRouteEl = $('recoveryRouteBefore');
   if (prevRouteEl) {
-    if (isDemoTopology() && r.previous_route && r.previous_route.length > 0 && (phase === 'Rerouting' || phase === 'Verifying' || phase === 'Recovered' || unresolved)) {
+    if (usesRecoveryController() && r.previous_route && r.previous_route.length > 0 && (phase === 'Rerouting' || phase === 'Verifying' || phase === 'Recovered' || unresolved)) {
       prevRouteEl.style.display = 'inline-block';
       prevRouteEl.textContent = `Prev: ${r.previous_route.join(' → ')}`;
     } else {
@@ -1114,10 +1150,16 @@ function renderRecoverySummary() {
   }
 
   // 3. Current / Replacement route badge
+  if (!state.running && ['Detected','Diagnosing','Action Selected','Rerouting','Verifying'].includes(phase)) {
+    const title=$('recoveryHeading');
+    if(title)title.textContent='Recovery paused · press Run to continue';
+    const status=$('canvasStatusMsg');
+    if(status)status.textContent='Simulation paused. Press Run to continue recovery verification.';
+  }
   const routeEl = $('recoveryRoute');
-  const routeList = (isDemoTopology() ? r.current_route : state.flows?.find(f => f.status === 'ACTIVE')?.route) || [];
+  const routeList = (usesRecoveryController() ? r.current_route : state.flows?.find(f => f.status === 'ACTIVE')?.route) || [];
   if (routeEl) {
-    if (!isDemoTopology()) {
+    if (!usesRecoveryController()) {
       routeEl.textContent = routeList.length ? `Active route: ${routeList.join(' → ')}` : 'Active route: None';
     } else if (unresolved && (!routeList || !routeList.length || !isDelivering)) {
       routeEl.textContent = 'Active route: None';
@@ -1130,7 +1172,7 @@ function renderRecoverySummary() {
   // 4. Evidence / Diagnosis badge
   const evidenceEl = $('recoveryEvidence');
   if (evidenceEl) {
-    if (!isDemoTopology()) {
+    if (!usesRecoveryController()) {
       evidenceEl.className = 'meta-tag';
       evidenceEl.textContent = 'Custom topology monitoring';
     } else if (r.diagnosis) {
@@ -1152,7 +1194,7 @@ function renderRecoverySummary() {
   // 5. Recovery verification status badge
   const verifyEl = $('recoveryVerificationStatus');
   if (verifyEl) {
-    if (isDemoTopology() && phase === 'Recovered') {
+    if (usesRecoveryController() && phase === 'Recovered') {
       verifyEl.style.display = 'inline-block';
       const latStr = r.last_verified_latency_ms != null ? ` (${fmt(r.last_verified_latency_ms, 1)}ms)` : '';
       if (r.service_target_met) {
@@ -1162,7 +1204,7 @@ function renderRecoverySummary() {
         verifyEl.className = 'meta-tag meta-verify warning';
         verifyEl.textContent = `✔ Delivery Restored · Secondary SLA Tier${latStr}`;
       }
-    } else if (isDemoTopology() && phase === 'Verifying') {
+    } else if (usesRecoveryController() && phase === 'Verifying') {
       verifyEl.style.display = 'inline-block';
       verifyEl.className = 'meta-tag meta-verify warning';
       verifyEl.textContent = 'Verifying bypass delivery (5 packets)...';
@@ -1172,7 +1214,7 @@ function renderRecoverySummary() {
   }
 
   const scenarioPrefix = r.active_scenario ? `Active scenario: ${r.active_scenario.replaceAll('_', ' ')}. ` : 'No scripted scenario active. ';
-  $('scenarioHelp').textContent = !isDemoTopology()
+  $('scenarioHelp').textContent = !usesRecoveryController()
     ? 'Custom editing mode: add/remove devices and links. Load the recovery demo for scripted detect–diagnose–heal scenarios.'
     : $('scenarioSelect').value === 'preventive_congestion'
     ? 'Slow degradation at steps 2, 12 and 18. Use the preventive lab for a 20 ms standby path. Impact is measured, never assumed.'
@@ -1182,7 +1224,7 @@ function renderRecoverySummary() {
     ? 'Injects queue delay before packet loss occurs. Evaluates rising latency and attempts rerouting. Check measured latency for any service-target breach.'
     : 'Inject a fault into the running simulated network, then watch the autonomous recovery response.';
 
-  $('scenarioHelp').textContent = scenarioPrefix + $('scenarioHelp').textContent;
+  $('scenarioHelp').textContent = !isDemoTopology() ? 'Choose traffic endpoints, a link on their route, and Link failure or Congestion; then Inject Fault. Click a failed link and Recover Link to repair it. A bypass is required for recovery.' : scenarioPrefix + $('scenarioHelp').textContent;
 
   // Highlight pipeline steps
   const steps = document.querySelectorAll('.pipe-step');
@@ -1227,8 +1269,18 @@ function refreshEndpoints() {
     el.value = hosts.some(d => d.id === old) ? old : hosts.some(d => d.id === preferred) ? preferred : hosts[index]?.id || '';
   }
   $('projectPill').textContent = (state.name || 'Current topology').replace('ReRoute 6-Router Redundant Mesh', 'Nexus · Six-router recovery lab');
-  $('injectFaultBtn').disabled = !isDemoTopology();
-  $('injectFaultBtn').title = isDemoTopology() ? 'Inject the selected demo fault' : 'Load the six-router demo to use scripted scenarios. Individual device and link faults remain available.';
+  $('injectFaultBtn').disabled = !(state.links || []).length;
+  $('injectFaultBtn').title = 'Inject a fault without replacing this topology';
+  $('customFaultControls').hidden = isDemoTopology();
+  $('scenarioSelect').hidden = !isDemoTopology();
+  const links=$('customFaultLink'), oldLink=links.value;
+  links.innerHTML=(state.links || []).map(l=>`<option value="${esc(JSON.stringify([l.source,l.target]))}">${esc(l.source)} ↔ ${esc(l.target)}</option>`).join('');
+  if([...links.options].some(o=>o.value===oldLink))links.value=oldLink;
+  const names={'Self-Healing Demo':'self_healing','Redundant Network':'redundant','Two Router Network':'two_router'};
+  const ts=$('canvasTopologySelect');
+  ts.value=state.name?.startsWith('Nexus Preventive Lab')?'preventive_mesh':isDemoTopology()?'reroute_six_router':names[state.name] || '';
+  if(!ts.value)ts.options[2].textContent=state.name || 'Custom network';
+  renderReachability();
 }
 
 function renderDecisionEvidence() {
@@ -1245,6 +1297,7 @@ function renderDecisionEvidence() {
 
 function render() {
   renderDecisionEvidence();
+  renderAITrace();
   refreshEndpoints();
   renderRecoverySummary();
   if ($('pageIncidents')?.classList.contains('active-page')) renderIncidentsPage();
@@ -1252,7 +1305,7 @@ function render() {
   const r = state.reroute || {};
   const isRunning = Boolean(state.running);
 
-  renderCanvas();
+  if ($('pageSimulator')?.classList.contains('active-page')) renderCanvas();
   updateStatusSentence(r, isRunning);
   updateKPIs(r);
   updateDockRecentEvents(r.incident_timeline);
@@ -1309,7 +1362,7 @@ async function play() {
   const tick = async () => {
     if (epoch !== playbackEpoch || !state?.running) return;
     try {
-      pendingStep = api(isDemoTopology() ? 'reroute_step' : 'step');
+      pendingStep = api(usesRecoveryController() ? 'reroute_step' : 'step');
       await pendingStep;
       if (guidedDemo && ['Recovered','Unresolved'].includes(state?.reroute?.incident_state)) {
         guidedDemo = false;
@@ -1320,7 +1373,7 @@ async function play() {
       if (epoch === playbackEpoch && state?.running) {
         playTimer = setTimeout(tick, Math.max(50, 500 / Number($('speedSelect')?.value || 1)));
       }
-    } catch (e) { stop(); }
+    } catch (e) { stop(); toast('Playback stopped: '+e.message+'. Press Run to retry.',true); }
   };
   await pendingStep.catch(() => {});
   if (epoch === playbackEpoch) tick();
@@ -1493,12 +1546,13 @@ function bindControls() {
   $('startPreventiveDemo')?.addEventListener('click', async () => {
     if (!confirm('Start the preventive lab? This replaces your network with a declared 20 ms standby topology. Save your network first if needed.')) return;
     const btn = $('startPreventiveDemo'); btn.disabled = true;
+    const requestedAutoHeal = Boolean(state?.reroute?.auto_heal_enabled);
     try {
       await pausePlayback();
       selected = null; telemetryHistory = []; latencyHistory = []; packetsHistory = []; seenPacketIds.clear();
       await api('reroute_init', {preventive:true});
       $('canvasTopologySelect').value = 'preventive_mesh';
-      await api('reroute_set_auto_heal', {value:true});
+      await api('reroute_set_auto_heal', {value:requestedAutoHeal});
       $('trafficSource').value = 'Client'; $('trafficTarget').value = 'Server';
       $('scenarioSelect').value = 'preventive_congestion';
       await api('reroute_inject_scenario', {scenario:'preventive_congestion'});
@@ -1572,6 +1626,7 @@ function bindControls() {
       if (pageName === 'simulator') {
         $('pageSimulator').style.display = 'flex';
         $('pageSimulator').classList.add('active-page');
+        renderCanvas();
       } else if (pageName === 'incidents') {
         $('pageIncidents').style.display = 'flex';
         $('pageIncidents').classList.add('active-page');
@@ -1663,7 +1718,7 @@ function bindControls() {
   $('mainStepBtn')?.addEventListener('click', async () => {
     try {
       await pausePlayback();
-      await api(isDemoTopology() ? 'reroute_step' : 'step');
+      await api(usesRecoveryController() ? 'reroute_step' : 'step');
       await api('running', { value: false });
       toast('Executed single simulation step');
     } catch (e) {
@@ -1768,12 +1823,16 @@ function bindControls() {
     if (btn) btn.disabled = true;
 
     try {
-      if (!isDemoTopology()) throw new Error('Load the recovery demo explicitly before injecting scripted faults. Your custom topology was preserved.');
+      if (!isDemoTopology()) {
+        const [u,v]=JSON.parse($('customFaultLink').value);
+        await api('inject_custom_fault',{source:$('trafficSource').value,destination:$('trafficTarget').value,u,v,fault:$('customFaultType').value});
+        editorMode='run';await api('running',{value:true});play();toast(`Injected ${$('customFaultType').value} on ${u} ↔ ${v}`);return;
+      }
       if (!state.running) {
         // Automatically start traffic so fault injection works immediately
         const src = $('trafficSource')?.value || 'Client';
         const dst = $('trafficTarget')?.value || 'Server';
-        await api('start_traffic', {
+        if (!(state.flows || []).some(f=>f.status==='ACTIVE' && f.source===src && f.destination===dst)) await api('start_traffic', {
           source: src,
           destination: dst,
           packet_count: 80,
@@ -2014,7 +2073,7 @@ function bindControls() {
     toast('Running deterministic A/B benchmark...');
 
     try {
-      const resp = await api('reroute_run_comparison', { scenario: scn, offered_packets: 30, seed });
+      const resp = await api('reroute_run_comparison', { scenario: scn, offered_packets: 20, seed });
       const report = resp.state.report_dict;
       lastComparison = report;
       $('cmpOffBreaches').textContent = report.auto_heal_off.post_action.slo_breaches;
@@ -2095,3 +2154,32 @@ window.addEventListener('DOMContentLoaded', () => {
   bindControls();
   loadState().catch(e => toast(e.message, true));
 });
+
+for (const id of ['trafficSource','trafficTarget']) $(id)?.addEventListener('change',renderReachability);
+
+function renderAITrace() {
+  const r=state?.reroute || {}, t=r.ai_trace || {};
+  if (!Object.prototype.hasOwnProperty.call(r,'ai_trace')) {
+    $('aiTraceStatus').textContent='Backend update required: restart this server to load AI request tracing.';
+    $('aiTraceSteps').textContent='This running backend does not provide trace data. Request status cannot be determined from this panel.';
+    $('aiTraceRequest').textContent='Trace unavailable on this backend version.';
+    $('aiTraceResponse').textContent='Trace unavailable on this backend version.';
+    return;
+  }
+  const timestamp=v=>v?new Date(v).toLocaleTimeString():'Pending';
+  const waiting=t.status==='waiting';
+  const duration=t.elapsed_ms!=null?`${fmt(t.elapsed_ms,0)} ms`:waiting?`${Math.max(0,Math.round((Date.now()-t.request_sent_at_ms)/1000))} s waiting`:'—';
+  $('aiTraceStatus').textContent=t.request_id?`${t.model} · ${t.request_id} · ${t.status} · ${duration}`:'Waiting for a diagnosis request.';
+  const applied=['Rerouting','Verifying','Recovered'].includes(r.incident_state);
+  const rows=[
+    `Telemetry captured: ${timestamp(t.captured_at_ms)}`,
+    t.request_sent_at_ms?`Request dispatched to Qualcomm: ${timestamp(t.request_sent_at_ms)}`:'Request: not sent',
+    t.response_received_at_ms?`Model response received: ${timestamp(t.response_received_at_ms)} · ${duration}`:t.failure?`Request outcome: ${t.failure}`:'Response: waiting for an actual model response',
+    `Backend validation: ${t.validation_reason || 'Pending'}`,
+    r.incident_state==='Unresolved'?'Execution: unresolved; recovery not verified':applied?`Execution: ${(r.current_route || []).join(' → ')} · ${r.delivery_restored?'delivery verified':'verification pending'}`:'Execution: no validated action applied yet'
+  ];
+  $('aiTraceSteps').replaceChildren(...rows.map(text=>{const li=document.createElement('li');li.textContent=text;return li}));
+  $('aiTraceRequest').textContent=t.request_text || 'No external request sent.';
+  $('aiTraceResponse').textContent=t.response_text || 'No model response received. Rule fallback is not a Qualcomm response.';
+}
+setInterval(()=>{if(state?.reroute?.ai_trace?.status==='waiting')renderAITrace()},1000);

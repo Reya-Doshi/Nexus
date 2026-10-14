@@ -15,6 +15,7 @@
         <div class="brand-text">
           <div class="brand-title">NEXUS</div>
           <div class="brand-subtitle">AI-assisted network recovery</div>
+          <div class="sidebar-team-tag">👥 Team Setu</div>
         </div>
       </div>
 
@@ -33,7 +34,7 @@
           <span>Incidents</span>
         </button>
 
-        <button class="nav-item" data-page="compare" id="navCompareBtn">
+        <button class="nav-item" data-page="compare" id="navCompareBtn" style="display:none;">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
             <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
           </svg>
@@ -79,7 +80,7 @@
     <div class="main-viewport">
       <!-- 1. SIMULATOR PAGE -->
       <section id="pageSimulator" class="nexus-page active-page">
-        <div class="demo-guide" role="note"><button id="startPreventiveDemo" class="primary-play-btn">▶ Prevent impact demo</button><button id="focusDemoBtn" class="ctrl-btn" aria-pressed="false">Focus view</button><strong>Your demo in 3 steps</strong><span>1 · Run traffic</span><span>2 · Inject a fault</span><span>3 · Watch diagnosis, rerouting and verified recovery</span></div>
+        <div class="demo-guide" role="note"><button id="startPreventiveDemo" class="primary-play-btn">▶ Prevent impact demo</button><button id="focusDemoBtn" class="ctrl-btn" aria-pressed="false">Focus view</button><a class="ctrl-btn" href="#aiTracePanel">View AI request / response</a><strong>Your demo in 3 steps</strong><span>1 · Run traffic</span><span>2 · Inject a fault</span><span>3 · Watch diagnosis, rerouting and verified recovery</span></div>
         <!-- Modern Top Toolbar -->
         <header class="page-topbar">
           <div class="topbar-left">
@@ -127,18 +128,16 @@
                 <option value="gradual_congestion">Severe Congestion (R2-R4)</option>
                 <option value="no_alternate_path">No Alternate Path (Dual Trunk)</option>
               </select>
+              <span id="customFaultControls" hidden>
+                <select id="customFaultType" aria-label="Custom fault type"><option value="link_failure">Link failure</option><option value="congestion">Congestion</option></select>
+                <select id="customFaultLink" aria-label="Link to fault"></select>
+              </span>
               <button id="injectFaultBtn" class="btn-peach-fault" title="Inject selected fault scenario">
                 ⚡ Inject Fault
               </button>
             </div>
 
-            <div class="toggle-control">
-              <span class="toggle-label" id="autoHealLabel">Auto-heal</span>
-              <label class="switch">
-                <input type="checkbox" id="autoHealToggle" checked />
-                <span class="slider round"></span>
-              </label>
-            </div>
+            <input type="checkbox" id="autoHealToggle" checked style="display:none;" />
           </div>
 
           <!-- Status strip: Simulation Running pill, Notifications, Theme Toggle, Team Setu -->
@@ -295,6 +294,7 @@
 
 
         <!-- Center Workspace: Canvas + Right Inspector -->
+        <div id="reachabilityAlert" role="alert" hidden></div>
         <div class="workspace-body">
           <!-- Topology Canvas Area -->
           <div class="canvas-viewport" id="canvasViewport">
@@ -304,7 +304,7 @@
                 <span class="canvas-title">Network Topology:</span>
                 <select id="canvasTopologySelect" class="canvas-topo-select" title="Switch network topology preset">
                   <option value="reroute_six_router" selected>Recovery lab · slower backup</option><option value="preventive_mesh">Preventive lab · 20 ms backup</option>
-                  <option value="self_healing">Self-Healing Demo</option>
+                  <option value="">Custom network</option><option value="self_healing">Self-Healing Demo</option>
                   <option value="redundant">Redundant Dual Trunk</option>
                   <option value="two_router">Two Router Network</option>
                   <option value="simple_lan">Simple LAN</option>
@@ -450,6 +450,14 @@
           </aside>
         </div>
 
+
+        <section id="aiTracePanel" class="ai-trace-panel" aria-label="Qualcomm request and response">
+          <h3>Qualcomm AI · Request → Response → Validated action</h3>
+          <div id="aiTraceStatus" role="status">Waiting for a diagnosis request.</div>
+          <ol id="aiTraceSteps"></ol>
+          <details><summary>View actual model request</summary><pre id="aiTraceRequest">No request sent.</pre></details>
+          <details><summary>View actual model response</summary><pre id="aiTraceResponse">No response received.</pre></details>
+        </section>
         <section class="decision-strip" aria-label="Recovery evidence">
           <div><span class="decision-label">USER IMPACT · FAULT TO RECOVERY</span><strong id="impactVerdict">Waiting for a fault</strong><p id="impactDetail">Packet loss and latency breaches will be measured here.</p></div>
           <div><span class="decision-label">WHY THIS ACTION?</span><strong id="decisionTitle">Monitoring the network</strong><p id="decisionExplanation">Run traffic and inject a fault to see the diagnosis.</p><details><summary>Inspect observations sent to diagnosis</summary><div id="diagnosisObservations" class="observation-table">No diagnosis requested.</div></details></div>
@@ -629,6 +637,11 @@
             </div>
           </div>
 
+          <section class="incident-detail-card" aria-label="Recovery evidence">
+            <div class="card-head"><h3>Why this diagnosis · How recovery worked</h3></div>
+            <div id="rcaEvidenceReport" class="rca-evidence-report">Run a scenario to capture evidence.</div>
+          </section>
+
           <!-- Selected Incident Detail Card -->
           <div class="incident-detail-card" id="incidentDetailCard">
             <div class="card-head">
@@ -793,6 +806,13 @@
         <header class="page-topbar">
           <div class="topbar-left">
             <h1 class="page-title">About Nexus &amp; Architecture</h1>
+            <div class="inc-explanation-box" id="aiContributionSummary">
+              <strong>Where AI is used</strong><br>
+              Qualcomm-hosted Llama interprets the captured link measurements, identifies a likely fault type and component, explains the evidence and competing cause, and recommends a supported bypass action.
+              Its explanation shows why avoiding that component can help. The backend corroborates the attribution before executing.
+              <br><strong>Where deterministic logic is used</strong><br>
+              Telemetry collection, threshold detection, route calculation, applying changes, packet verification and the repeatable comparison benchmark. Rule fallback is labelled. Snapdragon image-model profiling is a separate experiment, not the live telemetry diagnosis.
+            </div>
             <span class="project-pill">NC-04: Self-Healing Network Simulator • Qualcomm Cloud AI 100</span>
           </div>
         </header>

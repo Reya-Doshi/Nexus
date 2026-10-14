@@ -64,3 +64,32 @@ def test_total_outage_revokes_previous_recovery_and_repair_recovers():
     s.configure_link('Client','R7',{'status':'UP'})
     for _ in range(12):s.reroute_step()
     assert c.incident_state == IncidentState.RECOVERED
+
+
+def test_event_history_does_not_retroactively_claim_recovery():
+    s = lab()
+    ctrl = s.reroute_controller
+    ctrl.log_incident_event('before diagnosis')
+    early = dict(ctrl.incident_history[-1])
+    ctrl.incident_state = IncidentState.RECOVERED
+    ctrl.recovery_time_sim_time = 4.2
+    ctrl.log_incident_event('verified')
+    assert early['provider'] is None
+    assert early['recovery_time'] is None
+    assert ctrl.incident_history[-2] == early
+    assert ctrl.incident_history[-1]['recovery_time'] == 4.2
+
+
+def test_recovery_refills_exhausted_packets_after_late_autoheal():
+    s=lab();c=s.reroute_controller
+    c.set_auto_heal(False)
+    s.reroute_inject_scenario('sudden_link_failure')
+    for _ in range(75):s.reroute_step()
+    assert c.incident_state.value=='Action selected'
+    previous=s.last_packet['id']
+    c.set_auto_heal(True)
+    for _ in range(40):
+        s.reroute_step()
+        if c.incident_state.value=='Recovered':break
+    assert c.incident_state.value=='Recovered'
+    assert s.last_packet['id']>previous
